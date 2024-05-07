@@ -184,6 +184,7 @@ class Database:
                 key, value = record
                 if key.decode().startswith(table_name + "#"):  #FIX naming convention
                     record = json.loads(value.decode('utf-8'))
+                    # print(record) #DELETE
                     records.append(record)  # Decoded JSON 
                 record = cursor.next()
             cursor.close()

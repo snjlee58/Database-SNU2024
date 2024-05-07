@@ -59,6 +59,18 @@ class MyTransformer(Transformer):
         schema_str = self.db.get_table_schema(table_key)
         return schema_str  
 
+    def get_table_column_names(self, table_name):
+        schema = self.get_table_schema(table_name)
+
+        # Collect column names from schema 
+        column_names = []
+        for column_def in schema.split("|")[0].split(';'):
+            column_name = column_def.split(":")[0]
+            column_names.append(column_name)
+        
+        print(column_names) #DELETE
+        return column_names
+
     # Helper Functions Handling column_name
     def column_exists_in_schema(self, column_name, schema):
         """
@@ -401,36 +413,103 @@ class MyTransformer(Transformer):
 
     def select_query(self, items):
         """ SELECT """
-        # Extract table name
-        table_name =  items[2].children[0].children[1].children[0].children[0].children[0].lower()
+        # table_name =  items[2].children[0].children[1].children[0].children[0].children[0].lower()
         
-        # Check if table exists before proceeding
-        if not self.table_name_exists(table_name):
-            raise CustomException(f"Selection has failed: '{table_name}' does not exist") # SelectTableExistenceError(#tableName)
+        # Extract table names
+        referred_table_names =[table_name.children[0].lower() for table_name in items[2].children[0].find_data("table_name")] 
         
-        # Retrieve schema and records from database
-        schema = self.get_table_schema(table_name)
-        records = self.db.retrieve_records(table_name)
+        for table_name in referred_table_names:
+            # Check if table exists before proceeding
+            if not self.table_name_exists(table_name):
+                raise CustomException(f"Selection has failed: '{table_name}' does not exist") # SelectTableExistenceError(#tableName)
+        
+        # Get column details from SELECT clause
+        select_list = items[1]  # Assuming this holds the select list
+        selected_columns = []  # This will hold tuples of (column, table if specified)
+        for selected_column in select_list.find_data("selected_column"):
+            table_name = selected_column.children[0].children[0].value.lower() if isinstance(selected_column.children[0], Tree) else None
+            column_name = selected_column.children[1].children[0].value.lower()
+            selected_columns.append((table_name, column_name))
 
+        # Map columns to tables and check for ambiguity
+        column_table_map = {}
+        for specified_table, column in selected_columns:
+            if specified_table:
+                # Direct mapping if table is specified
+                if not self.column_exists_in_table_name(column, specified_table):
+                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                column_table_map[column] = specified_table
+
+            else:
+                # Find all tables that contain the column if no table is specified
+                found_tables = [table for table in referred_table_names if self.column_exists_in_table_name(column, table)]
+                if len(found_tables) > 1:
+                   raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                elif not found_tables:
+                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                column_table_map[column] = found_tables[0]
+            
+        # Perform cartesian product
+        initial_records, column_names = self.cartesian_product(referred_table_names)
+        print(initial_records) #DELETE
+        print(column_names) #DELETE
+
+        # # Check if there's a WHERE clause
+        where_clause = items[2].children[1]
+        if where_clause is None:
+            # No WHERE clause provided, select all records
+            self.print_select_results(column_names, initial_records)
+        else:
+            conditions = self.extract_conditions(where_clause)
+            
+            self.validate_condition(conditions[0], referred_table_names)
+
+            # Select records matching the conditions
+            selected_records = []
+            for record in initial_records:
+                if self.evaluate_conditions(record, conditions):
+                    selected_records.append(record)
+
+            self.print_select_results(column_names, selected_records)
+
+    def cartesian_product(self, table_names):
+        """ Generate the Cartesian product of multiple tables. """
+
+        # Start with the records from the first table
+        result = [{f"{table_names[0]}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_names[0])]
+        
         # Collect column names from schema 
-        column_names = []
-        for column_def in schema.split("|")[0].split(';'):
-            column_name = column_def.split(":")[0]
-            column_names.append(column_name)
+        column_names = [f"{table_names[0]}.{column}" for column in self.get_table_column_names(table_names[0])]
+
+        # Loop through the other tables and form the product
+        for table in table_names[1:]:
+            new_result = []
+            additional_column_names = [f"{table}.{column}" for column in self.get_table_column_names(table)]
+            column_names.extend(additional_column_names)
+            for record1 in result:
+                for record2 in self.db.retrieve_records(table):
+                    prefixed_record2 = {f"{table}.{key}": value for key, value in record2.items()}
+                    new_result.append({**record1, **prefixed_record2})  # Merge dictionaries
+            result = new_result
+        
+        return result, column_names
+
+    def print_select_results(self, column_names, records):
 
         # Print header
         print("+--------------------------------------+") 
-        column_name_formatted = "\t|".join([column for column in column_names])
+        column_name_formatted = "\t|".join([column for column in column_names if '#' not in column])
         print("|" + column_name_formatted + "\t|")
         print("+--------------------------------------+") 
 
         # Print each record
         for record in records:
-            record_formatted = "\t|".join([record[column] for column in column_names]) 
+            record_formatted = "\t|".join([record[column] for column in column_names if '#' not in record[column]]) 
             print("|" + record_formatted + "\t|")
 
         # Print footer
         print("+--------------------------------------+")
+
 
     def show_tables_query(self, items): 
         """ SHOW TABLES """
@@ -453,13 +532,14 @@ class MyTransformer(Transformer):
         deleted_count = 0
 
         # Check if there's a WHERE clause
-        if items[3] is None:
+        where_clause = items[3]
+        if where_clause is None:
             # No WHERE clause provided, delete all records
             deleted_count = len(initial_records)  # All records will be deleted
             self.db.delete_all_table_records(table_name)
             # print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
         else:
-            where_clause = items[3]
+            # where_clause = items[3]
             conditions = self.extract_conditions(where_clause)
             
             self.validate_condition(conditions[0], [table_name])
@@ -580,8 +660,10 @@ class MyTransformer(Transformer):
         return all(results)
     
     def evaluate_single_condition(self, record, condition):
-        column, operator, value = condition["predicate"]["column_name"], condition["predicate"]["comp_op"], condition["predicate"]["comparable_value"].strip('\'"').lower() #FIXME: separate condition evaluation based on data type
-        record_value = record.get(column.lower())
+        column_name_with_table = f"{condition["predicate"]["table_name"]}.{condition["predicate"]["column_name"]}"
+        column_name_only = condition["predicate"]["column_name"]
+        operator, value = condition["predicate"]["comp_op"], condition["predicate"]["comparable_value"].strip('\'"').lower() #FIXME: separate condition evaluation based on data type
+        record_value = record.get(column_name_with_table.lower()) #FIX: figure out how to do both tablename+columnname and columnname only (select and delete / for delete maybe add tablename to the key manually? idkk)
         print(record_value) #DELETE
 
         # Evaluate comparison based on the operator
