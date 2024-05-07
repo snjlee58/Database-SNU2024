@@ -68,7 +68,6 @@ class MyTransformer(Transformer):
             column_name = column_def.split(":")[0]
             column_names.append(column_name)
         
-        print(column_names) #DELETE
         return column_names
 
     # Helper Functions Handling column_name
@@ -451,8 +450,8 @@ class MyTransformer(Transformer):
             
         # Perform cartesian product
         initial_records, column_names = self.cartesian_product(referred_table_names)
-        print(initial_records) #DELETE
-        print(column_names) #DELETE
+        # print(initial_records) #DELETE
+        # print(column_names) #DELETE
 
         # # Check if there's a WHERE clause
         where_clause = items[2].children[1]
@@ -528,7 +527,8 @@ class MyTransformer(Transformer):
             raise CustomException("No such table") # NoSuchTable
 
         # Retrieve all records from the table
-        initial_records = self.db.retrieve_records(table_name)
+        # initial_records = self.db.retrieve_records(table_name)
+        initial_records = [{f"{table_name}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_name)]
         deleted_count = 0
 
         # Check if there's a WHERE clause
@@ -537,14 +537,15 @@ class MyTransformer(Transformer):
             # No WHERE clause provided, delete all records
             deleted_count = len(initial_records)  # All records will be deleted
             self.db.delete_all_table_records(table_name)
-            # print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
         else:
-            # where_clause = items[3]
+            # WHERE clause provided
+            # Extract conditions from WHERE clause
             conditions = self.extract_conditions(where_clause)
             
+            # Validate conditions
             self.validate_condition(conditions[0], [table_name])
 
-            # Delete records matching the conditions
+            # Evaluate conditions and Delete records matching the conditions
             for record in initial_records:
                 if self.evaluate_conditions(record, conditions):
                     self.db.delete_record(table_name, record)
@@ -559,12 +560,10 @@ class MyTransformer(Transformer):
         boolean_terms_cnt = len(boolean_terms)
         if boolean_terms_cnt == 1:
             # 1 condition / 2 conditions AND
-
             first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
-            print(first_condition) #DELETE
+            print(f"first_condition: {first_condition}") #DELETE
             conditions = (first_condition, None, None) #FIXME: does this need to be in a tuple in a list
     
-            pass
         else:
             # 2 conditions OR
             pass
@@ -656,15 +655,30 @@ class MyTransformer(Transformer):
                 results.append(cond1_result and cond2_result)
             elif condition[1].lower() == 'or':
                 results.append(cond1_result or cond2_result)
-        print(results) #DELETE
+        print(f"evaluate_conditions results: {results}") #DELETE
         return all(results)
     
-    def evaluate_single_condition(self, record, condition):
-        column_name_with_table = f"{condition["predicate"]["table_name"]}.{condition["predicate"]["column_name"]}"
-        column_name_only = condition["predicate"]["column_name"]
-        operator, value = condition["predicate"]["comp_op"], condition["predicate"]["comparable_value"].strip('\'"').lower() #FIXME: separate condition evaluation based on data type
-        record_value = record.get(column_name_with_table.lower()) #FIX: figure out how to do both tablename+columnname and columnname only (select and delete / for delete maybe add tablename to the key manually? idkk)
-        print(record_value) #DELETE
+    def evaluate_single_condition(self, record, condition):     
+        # Extract column, operator and value from where condition
+        column_name = condition["predicate"]["column_name"]
+        operator = condition["predicate"]["comp_op"]
+        value = condition["predicate"]["comparable_value"].strip('\'"').lower()
+
+        # Handle cases where table name is provided and when it is not.
+        table_name = condition["predicate"]["table_name"]
+        if table_name:
+            # Table name is provided, use it directly.
+            column_key = f"{table_name}.{column_name}".lower()
+        else:
+            # Table name not provided, find any matching key.
+            column_key = next((key for key in record if key.endswith(f".{column_name}")), None) # Assumes that column name is unique when table name isn't specified.
+
+        # Retrieve the record value using the constructed or found key.
+        record_value = record.get(column_key)
+        
+        print(f"column_key: {column_key}") #DELETE
+        print(f"record: {record}") #DELETE
+        print(f"record_value: {record_value}") #DELETE
 
         # Evaluate comparison based on the operator
         if operator == '=':
