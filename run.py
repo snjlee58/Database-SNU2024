@@ -3,6 +3,7 @@ from berkeleydb import db
 from Database import *
 from CustomException import *
 import re
+import datetime
 
 # Input Prompt
 PROMPT = "DB_2020-16634> "
@@ -578,38 +579,65 @@ class MyTransformer(Transformer):
         return conditions
 
     def validate_condition(self, condition, table_names):
-        predicate_table_name = condition["predicate"]["table_name"]
-        predicate_column_name = condition["predicate"]["column_name"]
-        predicate_comp_op = condition["predicate"]["comp_op"]
-        predicate_comparable_value = condition["predicate"]["comparable_value"]
-        if predicate_table_name is not None and predicate_table_name not in table_names: 
-            raise CustomException("Where clause trying to reference tables which are not specified") # WhereTableNotSpecified
-
-        # Validate column name exists in one of the tables.
-        tables_containing_column = [table for table in table_names if self.column_exists_in_table_name(predicate_column_name, table)]
-        if len(tables_containing_column) == 0:
-            # No tables containing column_name
-            raise CustomException("Where clause trying to reference non existing column") # WhereColumnNotExist
-        elif len(tables_containing_column) == 1:
-            # Exactly one table containing column_name
-            table_schema = self.get_table_schema(tables_containing_column[0])
-            column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
-        else:
-            # If more than one table contains the column name, predicate table_name must be given
-            if predicate_table_name is None:
-                raise CustomException("Where clause contains ambiguous reference") # WhereAmbiguousReference
-            else:
-                # Get column data type from the specified table_name
-                table_schema = self.get_table_schema(predicate_table_name)
-                column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
-
-        comparable_value_data_type = self.get_comparable_value_data_type(predicate_comparable_value)
+        predicate_condition_type = condition["type"]
         
-        # Validate operation data types
-        if not self.data_type_matches(column_data_type, comparable_value_data_type):
-            raise CustomException("Where clause trying to compare incomparable values (match)") # WhereIncomparableError
-        elif not self.valid_operator(predicate_comp_op, column_data_type):
-            raise CustomException("Where clause trying to compare incomparable values (comp_op)") # WhereIncomparableError
+        if predicate_condition_type == "comparison_predicate":
+            # Comparison predicate
+            left_operand = condition["predicate"]["left_operand"]
+            right_operand = condition["predicate"]["right_operand"]
+            operands = [left_operand, right_operand]
+            operator = condition["predicate"]["comp_op"]
+
+            column_reference_operands = [operand for operand in operands if len(operand) >= 2]
+            comparable_value_operands = [operand for operand in operands if operand not in column_reference_operands]
+        else:
+            # Null predicate
+            table_name = condition["predicate"]["table_name"]
+            column_name = condition["predicate"]["column_name"] 
+            operator = condition["predicate"]["comp_op"]
+
+            column_reference_operands = [{"table_name": table_name, "column_name": column_name}]
+
+        # Check whether referrenced table name appears in FROM clause
+        for column_reference_operand in column_reference_operands:
+            predicate_table_name = column_reference_operand["table_name"]
+            predicate_column_name = column_reference_operand["column_name"]
+            if predicate_table_name is not None and predicate_table_name not in table_names: 
+                raise CustomException("Where clause trying to reference tables which are not specified") # WhereTableNotSpecified
+
+            # Validate column name exists in one of the tables.
+            tables_containing_column = [table for table in table_names if self.column_exists_in_table_name(predicate_column_name, table)]
+            if len(tables_containing_column) == 0:
+                # No tables containing column_name
+                raise CustomException("Where clause trying to reference non existing column") # WhereColumnNotExist
+            elif len(tables_containing_column) == 1:
+                # Exactly one table containing column_name
+                table_schema = self.get_table_schema(tables_containing_column[0])
+                # column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
+                column_reference_operand["data_type"] = self.get_column_data_type(table_schema, predicate_column_name)
+            else:
+                # If more than one table contains the column name, predicate table_name must be given
+                if predicate_table_name is None:
+                    raise CustomException("Where clause contains ambiguous reference") # WhereAmbiguousReference
+                else:
+                    # Get column data type from the specified table_name
+                    table_schema = self.get_table_schema(predicate_table_name)
+                    # column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
+                    column_reference_operand["data_type"] = self.get_column_data_type(table_schema, predicate_column_name)
+
+        # Perform operands validation for comparison_predicate conditions
+        if predicate_condition_type == "comparison_predicate":
+            print(operands) #DELETE
+
+            # Extract data types for comparable value operands as well
+            for comparable_value_operand in comparable_value_operands:
+                comparable_value_operand["data_type"] = self.get_comparable_value_data_type(comparable_value_operand["comparable_value"])
+            
+            # Validate operation data types
+            if not self.data_type_matches(left_operand["data_type"], right_operand["data_type"]):
+                raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
+            elif not self.valid_operator(operator, left_operand["data_type"]):
+                raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
 
     def data_type_matches(self, column_data_type, comparable_value_data_type):
         print(column_data_type, comparable_value_data_type) #DELETE
@@ -620,23 +648,48 @@ class MyTransformer(Transformer):
             return comp_op in (GREATER_THAN, LESS_THAN, EQUAL, NOT_EQUAL, GREATER_OR_EQUAL, LESS_OR_EQUAL)
         elif operand_data_type.startswith("char"):
             return comp_op in (EQUAL, NOT_EQUAL)
+        else:
+            return comp_op in ("is null", "is not null") #FIX
 
 
     def extract_boolean_factor(self, boolean_factor_node):
-        condition = {"is_not": False, 
-                     "predicate": {"table_name": "", "column_name": "", "comp_op": "", "comparable_value": ""}
-                     }
+        condition = dict()
 
         condition["is_not"] = False if boolean_factor_node.children[0] is None else True
         
-        comparison_predicate = boolean_factor_node.children[1].children[0].children[0]
-        condition["predicate"]["table_name"] = comparison_predicate.children[0].children[0].children[0].value if isinstance(comparison_predicate.children[0].children[0], Tree) else None
-        condition["predicate"]["column_name"] = comparison_predicate.children[0].children[1].children[0].value
-        condition["predicate"]["comp_op"] = comparison_predicate.children[1].children[0].value
-        condition["predicate"]["comparable_value"] = comparison_predicate.children[2].children[0].children[0].value
+        predicate = boolean_factor_node.children[1].children[0].children[0] 
+
+        condition["predicate"] = {"table_name": "", "column_name": "", "comp_op": ""}
+        if predicate.data == "comparison_predicate":
+            # comparison_predicate 
+            condition["type"] = "comparison_predicate"
+            
+            condition["predicate"]["left_operand"] = self.extract_operand(predicate.children[0])
+            condition["predicate"]["comp_op"] = predicate.children[1].children[0].value
+            condition["predicate"]["right_operand"] = self.extract_operand(predicate.children[2])
+        else: 
+            # null_predicate
+            condition["type"] = "null_predicate"
+
+            condition["predicate"]["table_name"] = predicate.children[0].children[0].value if isinstance(predicate.children[0], Tree) else None
+            condition["predicate"]["column_name"] = predicate.children[1].children[0].value
+            condition["predicate"]["comp_op"] = "is null" if predicate.children[2].children[1] is None else "is not null"
 
         return condition
 
+     # Function to handle operand that might be a column reference or a comparable value
+    def extract_operand(self, comp_operand_node):
+        comp_operand = dict()
+        if len(comp_operand_node.children) == 2:
+            # Case 1: [table_name "."] column_name
+            comp_operand["table_name"] = comp_operand_node.children[0].children[0].value if isinstance(comp_operand_node.children[0], Tree) else None
+            comp_operand["column_name"] = comp_operand_node.children[1].children[0].value
+        elif len(comp_operand_node.children) == 1:
+            # Case 2: comparable_value
+            comp_operand["comparable_value"] = comp_operand_node.children[0].children[0].value
+
+        return comp_operand
+    
     def get_comparable_value_data_type(self, comparable_value):
         try: 
             int(comparable_value)
@@ -666,13 +719,26 @@ class MyTransformer(Transformer):
         return all(results)
     
     def evaluate_single_condition(self, record, condition):     
-        # Extract column, operator and value from where condition
-        column_name = condition["predicate"]["column_name"]
-        operator = condition["predicate"]["comp_op"]
-        value = condition["predicate"]["comparable_value"].strip('\'"').lower()
+        # Extract column, operator and value from WHERE condition
+        condition_negation = condition["is_not"]
+        condition_type = condition["type"]
+
+        if condition_type == "comparison_predicate":
+            # Comparison predicate
+            # left_operand = condition["predicate"]["left_operand"]
+            # right_operand = condition["predicate"]["right_operand"]
+            table_name = condition["predicate"]["left_operand"]["table_name"]
+            column_name = condition["predicate"]["left_operand"]["column_name"]
+            operator = condition["predicate"]["comp_op"]
+            comparable_value = condition["predicate"]["right_operand"]["comparable_value"].strip('\'"').lower()
+        else:
+            # Null predicate
+            table_name = condition["predicate"]["table_name"]
+            column_name = condition["predicate"]["column_name"] 
+            operator = condition["predicate"]["comp_op"]
 
         # Handle cases where table name is provided and when it is not.
-        table_name = condition["predicate"]["table_name"]
+        # table_name = condition["predicate"]["table_name"]
         if table_name:
             # Table name is provided, use it directly.
             column_key = f"{table_name}.{column_name}".lower()
@@ -685,16 +751,32 @@ class MyTransformer(Transformer):
         
         # print(f"column_key: {column_key}") #DELETE
         # print(f"record: {record}") #DELETE
-        # print(f"record_value: {record_value}") #DELETE
+        print(f"record_value: {record_value}") #DELETE
+        # print(f"comparison_value: {comparable_value}") #DELETE
 
         # Evaluate comparison based on the operator
         if operator == '=':
-            return record_value == value
+            result = record_value == comparable_value
         elif operator == '!=':
-            return record_value != value
-        
+            result = record_value != comparable_value
+        elif operator == '>':
+            result = record_value > comparable_value
+        elif operator == '<':
+            result = record_value < comparable_value
+        elif operator == '>=':
+            result = record_value >= comparable_value
+        elif operator == '<=':
+            result = record_value <= comparable_value
+        elif operator == "is null":
+            result = record_value == NULL
+        elif operator == "is not null":
+            result = record_value != NULL
         # Extend for other comparison operators
-        return False
+        
+        print(f"result: {result}") #DELETE
+        if condition_negation:
+            return not result
+        return result
 
     def insert_query(self, items):
         """ INSERT """
