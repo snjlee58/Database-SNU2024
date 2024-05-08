@@ -414,7 +414,7 @@ class MyTransformer(Transformer):
         """ SELECT """
         # table_name =  items[2].children[0].children[1].children[0].children[0].children[0].lower()
         
-        # Extract table names
+        # Extract table names from FROM clause
         referred_table_names =[table_name.children[0].lower() for table_name in items[2].children[0].find_data("table_name")] 
         
         for table_name in referred_table_names:
@@ -431,13 +431,13 @@ class MyTransformer(Transformer):
             selected_columns.append((table_name, column_name))
 
         # Map columns to tables and check for ambiguity
-        column_table_map = {}
+        select_column_table_map = {}
         for specified_table, column in selected_columns:
             if specified_table:
                 # Direct mapping if table is specified
                 if not self.column_exists_in_table_name(column, specified_table):
                     raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
-                column_table_map[column] = specified_table
+                select_column_table_map[column] = specified_table
 
             else:
                 # Find all tables that contain the column if no table is specified
@@ -446,12 +446,19 @@ class MyTransformer(Transformer):
                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
                 elif not found_tables:
                     raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
-                column_table_map[column] = found_tables[0]
+                select_column_table_map[column] = found_tables[0]
             
-        # Perform cartesian product
-        initial_records, column_names = self.cartesian_product(referred_table_names)
+        # Perform cartesian product from table in FROM clause
+        initial_records, all_column_names = self.cartesian_product(referred_table_names)
         # print(initial_records) #DELETE
         # print(column_names) #DELETE
+
+        if len(selected_columns) == 0:
+            # Select list non provided (SELECT *)
+            column_names = all_column_names
+        else:
+            # Select list provided
+            column_names = [f"{table}.{column}" for column, table in select_column_table_map.items()]
 
         # # Check if there's a WHERE clause
         where_clause = items[2].children[1]
@@ -676,9 +683,9 @@ class MyTransformer(Transformer):
         # Retrieve the record value using the constructed or found key.
         record_value = record.get(column_key)
         
-        print(f"column_key: {column_key}") #DELETE
-        print(f"record: {record}") #DELETE
-        print(f"record_value: {record_value}") #DELETE
+        # print(f"column_key: {column_key}") #DELETE
+        # print(f"record: {record}") #DELETE
+        # print(f"record_value: {record_value}") #DELETE
 
         # Evaluate comparison based on the operator
         if operator == '=':
