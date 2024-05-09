@@ -93,7 +93,7 @@ class Database:
         """
         # Assuming each record can be uniquely identified by an 'id' key
         # key_to_delete = f"{table_name}#{record['#']}"
-        key_to_delete = record['#']
+        key_to_delete = record[f'{table_name}.#']
         self.db.delete(key_to_delete.encode())
 
     def insert_table(self, table_name, schema):
