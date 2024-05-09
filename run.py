@@ -14,6 +14,10 @@ DATE = "date"
 CHAR = "char"
 NULL = "null"
 
+# LOGIC OPERATORS
+AND = "and"
+OR = "or"
+
 # COMPARISON OPERATORS
 GREATER_THAN = ">"
 LESS_THAN = "<"
@@ -413,8 +417,7 @@ class MyTransformer(Transformer):
 
     def select_query(self, items):
         """ SELECT """
-        # table_name =  items[2].children[0].children[1].children[0].children[0].children[0].lower()
-        
+    
         # Extract table names from FROM clause
         referred_table_names =[table_name.children[0].lower() for table_name in items[2].children[0].find_data("table_name")] 
         
@@ -432,13 +435,13 @@ class MyTransformer(Transformer):
             selected_columns.append((table_name, column_name))
 
         # Map columns to tables and check for ambiguity
-        select_column_table_map = {}
+        select_column_table_map = []
         for specified_table, column in selected_columns:
             if specified_table:
                 # Direct mapping if table is specified
                 if not self.column_exists_in_table_name(column, specified_table):
                     raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
-                select_column_table_map[column] = specified_table
+                select_column_table_map.append((column, specified_table))
 
             else:
                 # Find all tables that contain the column if no table is specified
@@ -447,7 +450,7 @@ class MyTransformer(Transformer):
                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
                 elif not found_tables:
                     raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
-                select_column_table_map[column] = found_tables[0]
+                select_column_table_map.append((column, found_tables[0]))
             
         # Perform cartesian product from table in FROM clause
         initial_records, all_column_names = self.cartesian_product(referred_table_names)
@@ -459,7 +462,7 @@ class MyTransformer(Transformer):
             column_names = all_column_names
         else:
             # Select list provided
-            column_names = [f"{table}.{column}" for column, table in select_column_table_map.items()]
+            column_names = [f"{table}.{column}" for column, table in select_column_table_map]
 
         # # Check if there's a WHERE clause
         where_clause = items[2].children[1]
@@ -469,7 +472,9 @@ class MyTransformer(Transformer):
         else:
             conditions = self.extract_conditions(where_clause)
             
-            self.validate_condition(conditions[0], referred_table_names)
+            for condition in [conditions[0], conditions[2]]:
+                if condition is not None:
+                    self.validate_condition(condition, referred_table_names)
 
             # Select records matching the conditions
             selected_records = []
@@ -550,7 +555,9 @@ class MyTransformer(Transformer):
             conditions = self.extract_conditions(where_clause)
             
             # Validate conditions
-            self.validate_condition(conditions[0], [table_name])
+            for condition in [conditions[0], conditions[2]]:
+                if condition is not None:
+                    self.validate_condition(condition, [table_name]) 
 
             # Evaluate conditions and Delete records matching the conditions
             for record in initial_records:
@@ -565,16 +572,33 @@ class MyTransformer(Transformer):
         bool_expr = where_node.children[1]
         boolean_terms = list(bool_expr.find_data("boolean_term"))
         boolean_terms_cnt = len(boolean_terms)
+        boolean_factors = []
+        condition_cnt = 0
         if boolean_terms_cnt == 1:
             # 1 condition / 2 conditions AND
-            first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
-            print(f"first_condition: {first_condition}") #DELETE
-            conditions = (first_condition, None, None) #FIXME: does this need to be in a tuple in a list
-    
+            for boolean_factor in bool_expr.find_data("boolean_factor"):
+                # first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
+                condition = self.extract_boolean_factor(boolean_factor)
+                boolean_factors.append(condition)
+                condition_cnt = condition_cnt + 1
+            
+            if condition_cnt == 1:
+                # 1 condition
+                conditions = (boolean_factors[0], None, None) 
+            else:
+                # 2 conditions AND
+                conditions = (boolean_factors[0], AND, boolean_factors[1])
         else:
             # 2 conditions OR
-            pass
+            for boolean_factor in bool_expr.find_data("boolean_factor"):
+                # first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
+                condition = self.extract_boolean_factor(boolean_factor)
+                boolean_factors.append(condition)
+                condition_cnt = condition_cnt + 1
+            
+            conditions = (boolean_factors[0], OR, boolean_factors[1])
 
+        print(f"conditions: {conditions}") #DELETE
         return conditions
 
     def validate_condition(self, condition, table_names):
@@ -708,13 +732,13 @@ class MyTransformer(Transformer):
         if condition[1] is None:
             # Single condition evaluation
             results.append(self.evaluate_single_condition(record, condition[0]))
-        elif condition[1].lower() in ['and', 'or']:
+        elif condition[1].lower() in [AND, OR]:
             # Evaluate the two conditions
             cond1_result = self.evaluate_single_condition(record, condition[0])
             cond2_result = self.evaluate_single_condition(record, condition[2])
-            if condition[1].lower() == 'and':
+            if condition[1].lower() == AND:
                 results.append(cond1_result and cond2_result)
-            elif condition[1].lower() == 'or':
+            elif condition[1].lower() == OR:
                 results.append(cond1_result or cond2_result)
         print(f"evaluate_conditions results: {results}") #DELETE
         return all(results)
