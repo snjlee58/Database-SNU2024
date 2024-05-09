@@ -3,7 +3,7 @@ from berkeleydb import db
 from Database import *
 from CustomException import *
 import re
-import datetime
+from datetime import datetime
 
 # Input Prompt
 PROMPT = "DB_2020-16634> "
@@ -535,7 +535,6 @@ class MyTransformer(Transformer):
             raise CustomException("No such table") # NoSuchTable
 
         # Retrieve all records from the table
-        # initial_records = self.db.retrieve_records(table_name)
         initial_records = [{f"{table_name}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_name)]
         deleted_count = 0
 
@@ -592,14 +591,16 @@ class MyTransformer(Transformer):
             comparable_value_operands = [operand for operand in operands if operand not in column_reference_operands]
         else:
             # Null predicate
-            table_name = condition["predicate"]["table_name"]
-            column_name = condition["predicate"]["column_name"] 
+            left_operand = condition["predicate"]["left_operand"]
             operator = condition["predicate"]["comp_op"]
-
-            column_reference_operands = [{"table_name": table_name, "column_name": column_name}]
+            column_reference_operands = [left_operand]
 
         # Check whether referrenced table name appears in FROM clause
         for column_reference_operand in column_reference_operands:
+            # Store operand type
+            column_reference_operand["operand_type"] = "column_reference"
+            
+            # Check table_name presence in FROM clause
             predicate_table_name = column_reference_operand["table_name"]
             predicate_column_name = column_reference_operand["column_name"]
             if predicate_table_name is not None and predicate_table_name not in table_names: 
@@ -613,7 +614,6 @@ class MyTransformer(Transformer):
             elif len(tables_containing_column) == 1:
                 # Exactly one table containing column_name
                 table_schema = self.get_table_schema(tables_containing_column[0])
-                # column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
                 column_reference_operand["data_type"] = self.get_column_data_type(table_schema, predicate_column_name)
             else:
                 # If more than one table contains the column name, predicate table_name must be given
@@ -622,26 +622,27 @@ class MyTransformer(Transformer):
                 else:
                     # Get column data type from the specified table_name
                     table_schema = self.get_table_schema(predicate_table_name)
-                    # column_data_type = self.get_column_data_type(table_schema, predicate_column_name)
                     column_reference_operand["data_type"] = self.get_column_data_type(table_schema, predicate_column_name)
 
         # Perform operands validation for comparison_predicate conditions
         if predicate_condition_type == "comparison_predicate":
-            print(operands) #DELETE
 
             # Extract data types for comparable value operands as well
             for comparable_value_operand in comparable_value_operands:
                 comparable_value_operand["data_type"] = self.get_comparable_value_data_type(comparable_value_operand["comparable_value"])
-            
+                comparable_value_operand["operand_type"] = "comparable_value"
             # Validate operation data types
             if not self.data_type_matches(left_operand["data_type"], right_operand["data_type"]):
+                print("operand data types dont match") #DELETE
                 raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
             elif not self.valid_operator(operator, left_operand["data_type"]):
+                print("invalid operator for operands") #DELETE
                 raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
+            print(f"operands: {operands}") #DELETE
 
-    def data_type_matches(self, column_data_type, comparable_value_data_type):
-        print(column_data_type, comparable_value_data_type) #DELETE
-        return column_data_type.startswith("char") and comparable_value_data_type == "char" or column_data_type == comparable_value_data_type
+    def data_type_matches(self, left_operand_data_type, right_operand_data_type):
+        print(left_operand_data_type, right_operand_data_type) #DELETE
+        return left_operand_data_type.startswith("char") and right_operand_data_type.startswith("char") or left_operand_data_type == right_operand_data_type
     
     def valid_operator(self, comp_op, operand_data_type):
         if operand_data_type == INT or operand_data_type == DATE:
@@ -659,7 +660,7 @@ class MyTransformer(Transformer):
         
         predicate = boolean_factor_node.children[1].children[0].children[0] 
 
-        condition["predicate"] = {"table_name": "", "column_name": "", "comp_op": ""}
+        condition["predicate"] = dict()
         if predicate.data == "comparison_predicate":
             # comparison_predicate 
             condition["type"] = "comparison_predicate"
@@ -670,9 +671,9 @@ class MyTransformer(Transformer):
         else: 
             # null_predicate
             condition["type"] = "null_predicate"
-
-            condition["predicate"]["table_name"] = predicate.children[0].children[0].value if isinstance(predicate.children[0], Tree) else None
-            condition["predicate"]["column_name"] = predicate.children[1].children[0].value
+            table_name = predicate.children[0].children[0].value if isinstance(predicate.children[0], Tree) else None
+            column_name = predicate.children[1].children[0].value
+            condition["predicate"]["left_operand"] = {"table_name": table_name, "column_name": column_name}
             condition["predicate"]["comp_op"] = "is null" if predicate.children[2].children[1] is None else "is not null"
 
         return condition
@@ -720,63 +721,82 @@ class MyTransformer(Transformer):
     
     def evaluate_single_condition(self, record, condition):     
         # Extract column, operator and value from WHERE condition
+        print(record) #DELETE
         condition_negation = condition["is_not"]
         condition_type = condition["type"]
 
+        left_operand_value = ""
+        right_operand_value = ""
+
         if condition_type == "comparison_predicate":
             # Comparison predicate
-            # left_operand = condition["predicate"]["left_operand"]
-            # right_operand = condition["predicate"]["right_operand"]
-            table_name = condition["predicate"]["left_operand"]["table_name"]
-            column_name = condition["predicate"]["left_operand"]["column_name"]
+            left_operand_value = self.extract_record_value(record, condition["predicate"]["left_operand"])
+            right_operand_value = self.extract_record_value(record, condition["predicate"]["right_operand"])
+            
             operator = condition["predicate"]["comp_op"]
-            comparable_value = condition["predicate"]["right_operand"]["comparable_value"].strip('\'"').lower()
         else:
             # Null predicate
-            table_name = condition["predicate"]["table_name"]
-            column_name = condition["predicate"]["column_name"] 
+            left_operand_value = self.extract_record_value(record, condition["predicate"]["left_operand"])
+            
             operator = condition["predicate"]["comp_op"]
 
-        # Handle cases where table name is provided and when it is not.
-        # table_name = condition["predicate"]["table_name"]
-        if table_name:
-            # Table name is provided, use it directly.
-            column_key = f"{table_name}.{column_name}".lower()
-        else:
-            # Table name not provided, find any matching key.
-            column_key = next((key for key in record if key.endswith(f".{column_name}")), None) # Assumes that column name is unique when table name isn't specified.
-
-        # Retrieve the record value using the constructed or found key.
-        record_value = record.get(column_key)
-        
         # print(f"column_key: {column_key}") #DELETE
         # print(f"record: {record}") #DELETE
-        print(f"record_value: {record_value}") #DELETE
-        # print(f"comparison_value: {comparable_value}") #DELETE
+        print(f"left_operand_value: {left_operand_value}") #DELETE
+        print(f"right_operand_value: {right_operand_value}") #DELETE
 
         # Evaluate comparison based on the operator
         if operator == '=':
-            result = record_value == comparable_value
+            result = left_operand_value == right_operand_value
         elif operator == '!=':
-            result = record_value != comparable_value
+            result = left_operand_value != right_operand_value
         elif operator == '>':
-            result = record_value > comparable_value
+            result = left_operand_value > right_operand_value
         elif operator == '<':
-            result = record_value < comparable_value
+            result = left_operand_value < right_operand_value
         elif operator == '>=':
-            result = record_value >= comparable_value
+            result = left_operand_value >= right_operand_value
         elif operator == '<=':
-            result = record_value <= comparable_value
+            result = left_operand_value <= right_operand_value
         elif operator == "is null":
-            result = record_value == NULL
+            result = left_operand_value == NULL
         elif operator == "is not null":
-            result = record_value != NULL
+            result = left_operand_value != NULL
         # Extend for other comparison operators
         
         print(f"result: {result}") #DELETE
         if condition_negation:
             return not result
         return result
+
+    def extract_record_value(self, record, operand):
+        # Handle cases where table name is provided and when it is not.
+        print(operand) #DELETE
+        if operand["operand_type"] == "column_reference":
+            # Column reference value
+            table_name = operand["table_name"]
+            column_name = operand["column_name"]
+            if table_name:
+                # Table name is provided, use it directly.
+                column_key = f"{table_name}.{column_name}".lower()
+            else:
+                # Table name not provided, find any matching key.
+                column_key = next((key for key in record if key.endswith(f".{column_name}")), None) # Assumes that column name is unique when table name isn't specified.
+
+            # Retrieve the record value using the constructed or found key.
+            record_value = record.get(column_key)
+        else:
+            # Comparable value
+            record_value = operand["comparable_value"].strip('\'"').lower()
+
+        # Type conversion
+        data_type = operand["data_type"]
+        if data_type == INT:
+            record_value = int(record_value)
+        elif data_type == DATE:
+            record_value = datetime.strptime(record_value, '%Y-%m-%d').date()
+
+        return record_value
 
     def insert_query(self, items):
         """ INSERT """
