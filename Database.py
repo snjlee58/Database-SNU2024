@@ -206,10 +206,10 @@ class Database:
         try:
             cursor = self.db.cursor()
             record = cursor.first()
-            matched_records = [] #DELETE (DEBUG PURPOSE)
+            matched_records = [] #DELETE
             
             pk_column_list = list(query_pk_values_dict.keys())
-            print(f"pk_column_list: {pk_column_list}") #DELETE
+            print(f"pk_column_list: {table_name}.{pk_column_list}") #DELETE
             while record:
                 # Assuming key format is "tablename#primarykey"
                 if record[0].decode().startswith(f"{table_name}#"):
@@ -217,7 +217,6 @@ class Database:
                     record_pk_data = {pk_column: record_data[pk_column] for pk_column in pk_column_list}
                     print(f"record_pk_data: {record_pk_data}") #DELETE
                     if record_pk_data ==  query_pk_values_dict:
-                        print(f"matched pk record: {record_data}") #DELETE
                         matched_records.append(record_data) #DELETE (DEBUG)
                 record = cursor.next()
             

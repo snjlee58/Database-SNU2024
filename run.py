@@ -66,7 +66,7 @@ class MyTransformer(Transformer):
 
     def get_table_column_names(self, table_name):
         schema = self.get_table_schema(table_name)
-
+        
         # Collect column names from schema 
         column_names = []
         for column_def in schema.split("|")[0].split(';'):
@@ -170,10 +170,32 @@ class MyTransformer(Transformer):
         """
         schema_str = self.get_table_schema(table_name)
         
-        primary_keys = schema_str.split("|")[1].lstrip("PK:")
-        foreign_keys = schema_str.split("|")[2].lstrip("FK:").split(";")
+        primary_keys = schema_str.split("|")[1].lstrip("PK:").split(',')
 
+        if primary_keys == ['']:
+            return []
         return primary_keys
+    
+    # Helper Functions Handling Primary and Foreign Keys 
+    def get_foreign_keys(self, table_name):
+        """
+        Retrieves the list of foreign key column names for a specified table from the database schema.
+
+        Parameters:
+        - table_name (str): The name of the table whose foreign keys are to be retrieved.
+
+        Returns:
+        - list of str: A list of string representing the foreign keys of the table.
+
+        Note:
+        This function assumes that the schema string for the table is correctly formatted and includes a section for foreign keys prefixed with 'FK:'.
+        """
+        schema_str = self.get_table_schema(table_name)
+        print(f"schema_str: {schema_str}") #DELETE
+        foreign_keys = schema_str.split("|")[2].lstrip("FK:").split(";")
+        if foreign_keys == ['']:
+            return []
+        return foreign_keys
     
     def foreign_key_is_valid(self, foreign_key, foreign_key_definition_list):
         """
@@ -334,7 +356,7 @@ class MyTransformer(Transformer):
             referenced_key = ",".join(referenced_key_list)
 
             # Check if foreign key references primary key of referenced table (accounts for subset)
-            referenced_pk = self.get_primary_keys(referenced_table_name)
+            referenced_pk = ",".join(self.get_primary_keys(referenced_table_name))
             if referenced_key != referenced_pk: 
                 raise CustomException("Create table has failed: foreign key references non primary key column") # ReferenceNonPrimaryKeyError
 
@@ -852,7 +874,7 @@ class MyTransformer(Transformer):
                 raise CustomException("Insert has failed: column name is duplicated") # InsertTableDuplicateColumnError
         
             # Check if all Primary Keys are included in the column list
-            primary_keys_set = set(self.get_primary_keys(table_name).split(','))
+            primary_keys_set = set(self.get_primary_keys(table_name))
             unincluded_pks_set = primary_keys_set - set(column_names_query)
             # print(f"primary keys: {primary_keys_set}") #DELETE
             # print(f"column_names_query: {column_names_query}") #DELETE
@@ -919,10 +941,14 @@ class MyTransformer(Transformer):
             row_values[column_name] = data_value
         
         # Check for Primary Key Duplication (Optional)
-        pk_column_list = self.get_primary_keys(table_name).split(',')
-        insert_pk_value_dict = {pk_column_name: row_values[pk_column_name] for pk_column_name in pk_column_list}
-        if self.pk_value_exists(table_name, insert_pk_value_dict):
-            raise CustomException("Insertion has failed: Primary key duplication") # InsertDuplicatePrimaryKeyError
+        pk_column_list = self.get_primary_keys(table_name)
+        if len(pk_column_list) > 0: # Skip if table doesn't have a Primary Key
+            insert_pk_value_dict = {pk_column_name: row_values[pk_column_name] for pk_column_name in pk_column_list}
+            if self.pk_value_exists(table_name, insert_pk_value_dict):
+                raise CustomException("Insertion has failed: Primary key duplication") # InsertDuplicatePrimaryKeyError
+
+        # Verify foreign key constraints (Optional)
+        self.verify_foreign_keys(table_name, row_values)
 
         # # Insert the row into the database
         self.db.insert_row(table_name, row_values)
@@ -932,6 +958,22 @@ class MyTransformer(Transformer):
         """ Check if the primary key value already exists in the table """
         existing_value = self.db.retrieve_specific_pk_record(table_name, query_pk_values_dict)
         return len(existing_value) != 0
+
+    def verify_foreign_keys(self, table_name, row_values):
+        """Verifies that foreign key values exist as primary keys in their respective referenced tables."""
+        foreign_keys_info_list = self.get_foreign_keys(table_name)  # This method should be implemented to return details about foreign keys and their referenced tables
+        
+        if len(foreign_keys_info_list) == 0:
+            # Skip verification if table doesn't have any Foreign Keys
+            print("No foreign key: Skipped verification") #DELETE
+            return 
+        
+        for foreign_key_info in foreign_keys_info_list:
+            fk_column_name, ref_table_name, ref_column_name = foreign_key_info.split(":") # foreign_key_info format: "id:lectures:id"
+            fk_value = row_values[fk_column_name]
+            query_fk_values_dict = {ref_column_name: fk_value}
+            if len(self.db.retrieve_specific_pk_record(ref_table_name, query_fk_values_dict)) == 0:
+                raise CustomException("Insertion has failed: Referential integrity violation") # InsertReferentialIntegrityError
 
     def update_query(self, items):
         print(PROMPT + "\'UPDATE\' requested")
