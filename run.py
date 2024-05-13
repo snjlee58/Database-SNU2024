@@ -849,10 +849,20 @@ class MyTransformer(Transformer):
 
             # Check if number of column names and number of values to be inserted match
             if len(column_names_query) != len(set(column_names_query)):
-                raise CustomException("Insert has failed: column name is duplicated") #InsertTableDuplicateColumnError
+                raise CustomException("Insert has failed: column name is duplicated") # InsertTableDuplicateColumnError
+        
+            # Check if all Primary Keys are included in the column list
+            primary_keys_set = set(self.get_primary_keys(table_name).split(','))
+            unincluded_pks_set = primary_keys_set - set(column_names_query)
+            # print(f"primary keys: {primary_keys_set}") #DELETE
+            # print(f"column_names_query: {column_names_query}") #DELETE
+            # print(f"unincluded pks: {unincluded_pks_set}") #DELETE
+            if len(unincluded_pks_set) > 0:
+                raise CustomException(f"Insertion has failed: '{list(unincluded_pks_set)[0]}' is not nullable") # InsertColumnNonNullableError(#colName)
         else:
-            # If column order isn't specified in query, use default order from schema
+            # If column list isn't specified in query, extract from schema
             column_names_query = [col.split(":")[0] for col in schema]
+
 
         # Initialize values with null (fills in ungiven values with null)
         row_values  = {col.split(":")[0]: "null" for col in schema}
@@ -907,11 +917,22 @@ class MyTransformer(Transformer):
 
             # Store inserted value for corresponding column name
             row_values[column_name] = data_value
+        
+        # Check for Primary Key Duplication (Optional)
+        pk_column_list = self.get_primary_keys(table_name).split(',')
+        insert_pk_value_dict = {pk_column_name: row_values[pk_column_name] for pk_column_name in pk_column_list}
+        if self.pk_value_exists(table_name, insert_pk_value_dict):
+            raise CustomException("Insertion has failed: Primary key duplication") # InsertDuplicatePrimaryKeyError
 
         # # Insert the row into the database
         self.db.insert_row(table_name, row_values)
         print(f"{PROMPT}1 row inserted") # InsertResult
     
+    def pk_value_exists(self, table_name, query_pk_values_dict):
+        """ Check if the primary key value already exists in the table """
+        existing_value = self.db.retrieve_specific_pk_record(table_name, query_pk_values_dict)
+        return len(existing_value) != 0
+
     def update_query(self, items):
         print(PROMPT + "\'UPDATE\' requested")
     

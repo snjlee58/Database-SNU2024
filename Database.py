@@ -182,12 +182,52 @@ class Database:
             record = cursor.first()
             while record:
                 key, value = record
-                if key.decode().startswith(table_name + "#"):  #FIX naming convention
-                    record = json.loads(value.decode('utf-8'))
-                    # print(record) #DELETE
-                    records.append(record)  # Decoded JSON 
+                if key.decode().startswith(f"{table_name}#"):  #FIX naming convention
+                    record_data = json.loads(value.decode('utf-8'))
+                    # print(record_data) #DELETE
+                    records.append(record_data)  # Decoded JSON 
                 record = cursor.next()
             cursor.close()
             return records
         except db.DBError as e: 
             return []
+    
+    def retrieve_specific_pk_record(self, table_name, query_pk_values_dict):
+        """
+        Retrieve a specific record from the table corresponding to unique pk.
+
+        Parameters:
+        - table_name (str): The name of the table.
+        - query_pk_values_dict (dict): The dict containing primary key and value to match.
+
+        Returns:
+        - list or None: The list containing the record if found, empty if no record matches.
+        """
+        try:
+            cursor = self.db.cursor()
+            record = cursor.first()
+            matched_records = [] #DELETE (DEBUG PURPOSE)
+            
+            pk_column_list = list(query_pk_values_dict.keys())
+            print(f"pk_column_list: {pk_column_list}") #DELETE
+            while record:
+                # Assuming key format is "tablename#primarykey"
+                if record[0].decode().startswith(f"{table_name}#"):
+                    record_data = json.loads(record[1].decode())
+                    record_pk_data = {pk_column: record_data[pk_column] for pk_column in pk_column_list}
+                    print(f"record_pk_data: {record_pk_data}") #DELETE
+                    if record_pk_data ==  query_pk_values_dict:
+                        print(f"matched pk record: {record_data}") #DELETE
+                        matched_records.append(record_data) #DELETE (DEBUG)
+                record = cursor.next()
+            
+            print(f"matched records with pk: {matched_records}") #DELETE
+            if len(matched_records) > 1: #DELETE (DEBUG)
+                print("WHY ARE THERE DUPLICATE PKS") #DELETE (DEBUG)
+            
+            cursor.close()
+            return matched_records
+        except Exception as e:
+            raise Exception #DELETE
+            return None
+
