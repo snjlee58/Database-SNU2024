@@ -792,23 +792,27 @@ class MyTransformer(Transformer):
         print(f"right_operand_value: {right_operand_value}") #DELETE
 
         # Evaluate comparison based on the operator
-        if operator == '=':
-            result = left_operand_value == right_operand_value
-        elif operator == '!=':
-            result = left_operand_value != right_operand_value
-        elif operator == '>':
-            result = left_operand_value > right_operand_value
-        elif operator == '<':
-            result = left_operand_value < right_operand_value
-        elif operator == '>=':
-            result = left_operand_value >= right_operand_value
-        elif operator == '<=':
-            result = left_operand_value <= right_operand_value
-        elif operator == "is null":
-            result = left_operand_value == NULL
-        elif operator == "is not null":
-            result = left_operand_value != NULL
-        # Extend for other comparison operators
+        if condition_type == "comparison_predicate":
+            if NULL in [left_operand_value, right_operand_value]:
+                # Any comparison with NULL returns 
+                result = False
+            elif operator == '=':
+                result = left_operand_value == right_operand_value
+            elif operator == '!=':
+                result = left_operand_value != right_operand_value
+            elif operator == '>':
+                result = left_operand_value > right_operand_value
+            elif operator == '<':
+                result = left_operand_value < right_operand_value
+            elif operator == '>=':
+                result = left_operand_value >= right_operand_value
+            elif operator == '<=':
+                result = left_operand_value <= right_operand_value
+        else:
+            if operator == "is null":
+                result = left_operand_value == NULL
+            elif operator == "is not null":
+                result = left_operand_value != NULL
         
         print(f"result: {result}") #DELETE
         if condition_negation:
@@ -835,9 +839,11 @@ class MyTransformer(Transformer):
             # Comparable value
             record_value = operand["comparable_value"].strip('\'"').lower()
 
-        # Type conversion
+        # Type conversion (if null, return null)
         data_type = operand["data_type"]
-        if data_type == INT:
+        if record_value == NULL:
+            pass
+        elif data_type == INT:
             record_value = int(record_value)
         elif data_type == DATE:
             record_value = datetime.strptime(record_value, '%Y-%m-%d').date()
