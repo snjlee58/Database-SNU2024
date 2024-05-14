@@ -132,8 +132,7 @@ class MyTransformer(Transformer):
         """
         for column_name in column_names_query:
             if not self.column_exists_in_table_name(column_name, table_name):
-                raise CustomException(f"Insertion has failed: '{column_name}' does not exist") #InsertColumnExistenceError(#colName)
-
+                raise CustomException(Message.get_message(Message.INSERT_COLUMN_EXISTENCE_ERROR, column_name))
 
     def get_column_data_type(self, schema_str, column_name):
         """
@@ -248,7 +247,7 @@ class MyTransformer(Transformer):
         table_name = items[2].children[0].lower()
 
         if self.table_name_exists(table_name):
-            raise CustomException("Create table has failed: table with the same name already exists") # TableExistenceError
+            raise CustomException(Message.get_message(Message.TABLE_EXISTENCE_ERROR))
 
         # Initialize schema to save attributes (name and type) & sets to collect PRI/FOR key information
         schema = []
@@ -270,14 +269,14 @@ class MyTransformer(Transformer):
             if "char" in data_type:
                 char_length = int(data_type_tokens[2])  # This might need adjustment based on your parsing
                 if char_length < 1:
-                    raise CustomException("Char length should be over 0") # CharLengthError
+                    raise CustomException(Message.get_message(Message.CHAR_LENGTH_ERROR))
 
             # Extract nullable 여부 information
             is_nullable = "Y" if column_definition.children[3] is None else "N"
 
             # Check for duplicate column name before proceeding
             if self.column_exists_in_schema(column_name, schema):
-               raise CustomException("Create table has failed: column definition is duplicated") # DuplicateColumnDefError 
+                raise CustomException(Message.get_message(Message.DUPLICATE_COLUMN_DEF_ERROR))
     
             schema.append({"name": column_name, "type": data_type, "nullable": is_nullable, "key": ""})
 
@@ -285,7 +284,7 @@ class MyTransformer(Transformer):
         primary_key_iter = items[3].find_data("primary_key_constraint")
         # If there is more than one line defining primary key constraints, raise error
         if len(list(primary_key_iter)) > 1:
-            raise CustomException("Create table has failed: primary key definition is duplicated") # DuplicatePrimaryKeyDefError
+            raise CustomException(Message.get_message(Message.DUPLICATE_PRIMARY_KEY_DEF_ERROR))
 
         # Regenerate iterator to process primary keys
         primary_key_iter = items[3].find_data("primary_key_constraint")
@@ -296,7 +295,7 @@ class MyTransformer(Transformer):
 
                 # Check existence of column_name before proceeding
                 if not self.column_exists_in_schema(primary_column_name, schema):
-                    raise CustomException(f"Create table has failed: '{primary_column_name}' does not exist in column definition") #NonExistingColumnDefError(#colName)
+                    raise CustomException(Message.get_message(Message.NON_EXISTING_COLUMN_DEF_ERROR, primary_column_name))
                 
                 primary_keys.append(primary_column_name)
 
@@ -309,11 +308,11 @@ class MyTransformer(Transformer):
 
             # Check if foreign key references its own table
             if referenced_table_name == table_name:
-                raise CustomException("Create table has failed: foreign key cannot reference its own table") #ReferenceTableSelfError
+                raise CustomException(Message.get_message(Message.REFERENCE_TABLE_SELF_ERROR))
 
             # Check existance of reference table before proceeding
             if not self.table_name_exists(referenced_table_name):
-                raise CustomException("Create table has failed: foreign key references non existing table") # ReferenceTableExistenceError
+                raise CustomException(Message.get_message(Message.REFERENCE_TABLE_EXISTENCE_ERROR))
 
             # Retrieve schema for the referenced table
             referenced_schema_str = self.get_table_schema(referenced_table_name)
@@ -329,8 +328,7 @@ class MyTransformer(Transformer):
                    
                     # Check existence of referencing foreign key before proceeding
                     if not self.column_exists_in_schema(foreign_column_name, schema):
-                        raise CustomException(f"Create table has failed: '{foreign_column_name}' does not exist in column definition") #NonExistingColumnDefError(#colName)
-
+                        raise CustomException(Message.get_message(Message.NON_EXISTING_COLUMN_DEF_ERROR, foreign_column_name))
                     foreign_key_list.append(foreign_column_name)
             
             # Extract referenced_keys (primary key) of referenced table
@@ -340,7 +338,7 @@ class MyTransformer(Transformer):
                     
                     # Check existence of column name in referenced table before proceeding 
                     if not self.column_exists_in_table_name(referenced_column_name, referenced_table_name):
-                        raise CustomException("Create table has failed: foreign key references non existing column") # ReferenceColumnExistenceError
+                        raise CustomException(Message.get_message(Message.REFERENCE_COLUMN_EXISTENCE_ERROR))
                    
                     referenced_key_list.append(referenced_column_name)
             
@@ -349,7 +347,7 @@ class MyTransformer(Transformer):
                 fk_type = next((col['type'] for col in schema if col['name'] == fk_column), None)
                 ref_type = self.get_column_data_type(referenced_schema_str, ref_column)
                 if fk_type != ref_type:
-                    raise CustomException("Create table has failed: foreign key references wrong type") # ReferenceTypeError
+                    raise CustomException(Message.get_message(Message.REFERENCE_TYPE_ERROR))
 
             # Join column names with "," in composite foreign keys
             foreign_key = ",".join(foreign_key_list) 
@@ -358,11 +356,11 @@ class MyTransformer(Transformer):
             # Check if foreign key references primary key of referenced table (accounts for subset)
             referenced_pk = ",".join(self.get_primary_keys(referenced_table_name))
             if referenced_key != referenced_pk: 
-                raise CustomException("Create table has failed: foreign key references non primary key column") # ReferenceNonPrimaryKeyError
+                raise CustomException(Message.get_message(Message.REFERENCE_NON_PRIMARY_KEY_ERROR))
 
             if len(foreign_key_list) != len(referenced_key_list):
-                raise CustomException("Create table has failed: number of referencing columns does not match number of referenced columns") # ReferenceColumnCountMismatchError
-
+                raise CustomException(Message.get_message(Message.REFERENCE_COLUMN_COUNT_MISMATCH_ERROR))
+            
             foreign_keys.add(f"{foreign_key}:{referenced_table_name}:{referenced_key}") # Ex. "id,age,s_fname:person:id,age,fname"
 
         # Update schema list with key information
@@ -386,7 +384,7 @@ class MyTransformer(Transformer):
 
         self.db.insert_table(table_name, schema_enc)
         
-        print(f"{PROMPT}'{table_name}' table is created") # CreateTableSuccess(#tableName) 
+        raise CustomException(Message.get_message(Message.CREATE_TABLE_SUCCESS, table_name))
 
 
     def drop_table_query(self, items):
@@ -395,16 +393,16 @@ class MyTransformer(Transformer):
         
         # Check if table exists
         if not self.table_name_exists(table_name):
-            raise CustomException("No such table") # NoSuchTable Error
+            raise CustomException(Message.get_message(Message.NO_SUCH_TABLE))
         
         # Check for foreign key referencing tables
         referencing_tables = self.find_referencing_tables(table_name)
         if referencing_tables:
-            raise CustomException(f"Drop table has failed: '{table_name}' is referenced by other table") # DropReferencedTableError(#tableName)
+            raise CustomException(Message.get_message(Message.DROP_REFERENCED_TABLE_ERROR, table_name))
 
         # Drop table
         self.db.drop_table(table_name) 
-        print(f"{PROMPT}'{table_name}' table is dropped") # DropSuccess(#tableName)
+        raise CustomException(Message.get_message(Message.DROP_SUCCESS, table_name))
         
         
     def explain_query(self, items):
@@ -421,7 +419,7 @@ class MyTransformer(Transformer):
 
         # Check existence of table name before proceeding
         if not self.table_name_exists(table_name):
-            raise CustomException("No such table") # NoSuchTable
+            raise CustomException(Message.get_message(Message.NO_SUCH_TABLE))
 
         # Receive table data from database
         schema_str = self.get_table_schema(table_name)
@@ -446,7 +444,7 @@ class MyTransformer(Transformer):
         for table_name in referred_table_names:
             # Check if table exists before proceeding
             if not self.table_name_exists(table_name):
-                raise CustomException(f"Selection has failed: '{table_name}' does not exist") # SelectTableExistenceError(#tableName)
+                raise CustomException(Message.get_message(Message.SELECT_TABLE_EXISTENCE_ERROR, table_name))
         
         # Get column details from SELECT clause
         select_list = items[1]  # Assuming this holds the select list
@@ -462,16 +460,16 @@ class MyTransformer(Transformer):
             if specified_table:
                 # Direct mapping if table is specified
                 if not self.column_exists_in_table_name(column, specified_table):
-                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                    raise CustomException(Message.get_message(Message.SELECT_COLUMN_RESOLVE_ERROR, column))
                 select_column_table_map.append((column, specified_table))
 
             else:
                 # Find all tables that contain the column if no table is specified
                 found_tables = [table for table in referred_table_names if self.column_exists_in_table_name(column, table)]
                 if len(found_tables) > 1:
-                   raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                   raise CustomException(Message.get_message(Message.SELECT_COLUMN_RESOLVE_ERROR, column))
                 elif not found_tables:
-                    raise CustomException(f"Selection has failed: fail to resolve '{column}'") # SelectColumnResolveError(#colName)
+                    raise CustomException(Message.get_message(Message.SELECT_COLUMN_RESOLVE_ERROR, column))
                 select_column_table_map.append((column, found_tables[0]))
             
         # Perform cartesian product from table in FROM clause
@@ -559,7 +557,7 @@ class MyTransformer(Transformer):
 
         # Check existance of table before proceeding
         if not self.table_name_exists(table_name):
-            raise CustomException("No such table") # NoSuchTable
+            raise CustomException(Message.get_message(Message.NO_SUCH_TABLE))
 
         # Retrieve all records from the table
         initial_records = [{f"{table_name}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_name)]
@@ -587,7 +585,7 @@ class MyTransformer(Transformer):
                     self.db.delete_record(table_name, record)
                     deleted_count += 1
 
-        print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
+        raise CustomException(Message.get_message(Message.DELETE_RESULT, deleted_count))
 
     #TODO
     def extract_conditions(self, where_node):
@@ -650,13 +648,13 @@ class MyTransformer(Transformer):
             predicate_table_name = column_reference_operand["table_name"]
             predicate_column_name = column_reference_operand["column_name"]
             if predicate_table_name is not None and predicate_table_name not in table_names: 
-                raise CustomException("Where clause trying to reference tables which are not specified") # WhereTableNotSpecified
+                raise CustomException(Message.get_message(Message.WHERE_TABLE_NOT_SPECIFIED))
 
             # Validate column name exists in one of the tables.
             tables_containing_column = [table for table in table_names if self.column_exists_in_table_name(predicate_column_name, table)]
             if len(tables_containing_column) == 0:
                 # No tables containing column_name
-                raise CustomException("Where clause trying to reference non existing column") # WhereColumnNotExist
+                raise CustomException(Message.get_message(Message.WHERE_COLUMN_NOT_EXIST))
             elif len(tables_containing_column) == 1:
                 # Exactly one table containing column_name
                 table_schema = self.get_table_schema(tables_containing_column[0])
@@ -664,7 +662,7 @@ class MyTransformer(Transformer):
             else:
                 # If more than one table contains the column name, predicate table_name must be given
                 if predicate_table_name is None:
-                    raise CustomException("Where clause contains ambiguous reference") # WhereAmbiguousReference
+                    raise CustomException(Message.get_message(Message.WHERE_AMBIGUOUS_REFERENCE))
                 else:
                     # Get column data type from the specified table_name
                     table_schema = self.get_table_schema(predicate_table_name)
@@ -680,10 +678,10 @@ class MyTransformer(Transformer):
             # Validate operation data types
             if not self.data_type_matches(left_operand["data_type"], right_operand["data_type"]):
                 print("operand data types dont match") #DELETE
-                raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
+                raise CustomException(Message.get_message(Message.WHERE_INCOMPARABLE_ERROR))
             elif not self.valid_operator(operator, left_operand["data_type"]):
                 print("invalid operator for operands") #DELETE
-                raise CustomException("Where clause trying to compare incomparable values") # WhereIncomparableError
+                raise CustomException(Message.get_message(Message.WHERE_INCOMPARABLE_ERROR))
             print(f"operands: {operands}") #DELETE
 
     def data_type_matches(self, left_operand_data_type, right_operand_data_type):
@@ -856,7 +854,7 @@ class MyTransformer(Transformer):
 
         # Check existance of table before proceeding
         if not self.table_name_exists(table_name):
-            raise CustomException("No such table") # NoSuchTable
+            raise CustomException(Message.get_message(Message.NO_SUCH_TABLE))
 
         # Get data type constraints from table schema
         schema_str = self.get_table_schema(table_name)
@@ -877,8 +875,8 @@ class MyTransformer(Transformer):
 
             # Check if number of column names and number of values to be inserted match
             if len(column_names_query) != len(set(column_names_query)):
-                raise CustomException("Insert has failed: column name is duplicated") # InsertTableDuplicateColumnError
-        
+                raise CustomException(Message.get_message(Message.INSERT_TABLE_DUPLICATE_COLUMN_ERROR))
+
             # Check if all Primary Keys are included in the column list
             primary_keys_set = set(self.get_primary_keys(table_name))
             unincluded_pks_set = primary_keys_set - set(column_names_query)
@@ -886,7 +884,7 @@ class MyTransformer(Transformer):
             # print(f"column_names_query: {column_names_query}") #DELETE
             # print(f"unincluded pks: {unincluded_pks_set}") #DELETE
             if len(unincluded_pks_set) > 0:
-                raise CustomException(f"Insertion has failed: '{list(unincluded_pks_set)[0]}' is not nullable") # InsertColumnNonNullableError(#colName)
+                raise CustomException(Message.get_message(Message.INSERT_COLUMN_NON_NULLABLE_ERROR, list(unincluded_pks_set)[0]))
         else:
             # If column list isn't specified in query, extract from schema
             column_names_query = [col.split(":")[0] for col in schema]
@@ -902,7 +900,7 @@ class MyTransformer(Transformer):
 
         # Check whether number of columns and inserted values match before proceeding
         if len(column_names_query) != len(list(inserted_values_list)):
-            raise CustomException("Insertion has failed: Types are not matched") #InsertTypeMismatchError
+            raise CustomException(Message.get_message(Message.INSERT_TYPE_MISMATCH_ERROR))
 
         for idx, value in inserted_values_list:
             # Get corresponding column name and data type (needed for comparison)
@@ -914,7 +912,7 @@ class MyTransformer(Transformer):
             if isinstance(value.children[0], str) and value.children[0].lower() == "null":
                 data_value = "null"
                 if column_is_nullable != "Y":
-                    raise CustomException(f"Insertion has failed: '{column_name}' is not nullable") #InsertColumnNonNullableError(#colName)
+                    raise CustomException(Message.get_message(Message.INSERT_COLUMN_NON_NULLABLE_ERROR, column_name))
            
             # Handle the case where the child is a Tree (ie. comparable value)
             elif isinstance(value.children[0], Tree):
@@ -925,11 +923,11 @@ class MyTransformer(Transformer):
                     try:
                         value_int_convert = int(data_value)
                     except ValueError:
-                        raise CustomException("Insertion has failed: Types are not matched") #InsertTypeMismatchError
+                        raise CustomException(Message.get_message(Message.INSERT_TYPE_MISMATCH_ERROR))
 
                 elif column_data_type == "date":
                     if not re.match(r'^\d{4}-\d{2}-\d{2}$', data_value):
-                        raise CustomException("Insertion has failed: Types are not matched") #InsertTypeMismatchError
+                        raise CustomException(Message.get_message(Message.INSERT_TYPE_MISMATCH_ERROR))
 
                 elif column_data_type.startswith('char'):
                     # Extract max length from the data type definition such as 'char(10)'
@@ -941,7 +939,7 @@ class MyTransformer(Transformer):
                         (data_value.startswith('"') and data_value.endswith('"')):
                         data_value = data_value.strip('\'"')[:max_length] 
                     else:
-                        raise CustomException("Insertion has failed: Types are not matched") #InsertTypeMismatchError
+                        raise CustomException(Message.get_message(Message.INSERT_TYPE_MISMATCH_ERROR))
 
             # Store inserted value for corresponding column name
             row_values[column_name] = data_value
@@ -951,14 +949,14 @@ class MyTransformer(Transformer):
         if len(pk_column_list) > 0: # Skip if table doesn't have a Primary Key
             insert_pk_value_dict = {pk_column_name: row_values[pk_column_name] for pk_column_name in pk_column_list}
             if self.pk_value_exists(table_name, insert_pk_value_dict):
-                raise CustomException("Insertion has failed: Primary key duplication") # InsertDuplicatePrimaryKeyError
+                raise CustomException(Message.get_message(Message.INSERT_DUPLICATE_PRIMARY_KEY_ERROR))
 
         # Verify foreign key constraints (Optional)
         self.verify_foreign_keys(table_name, row_values)
 
         # # Insert the row into the database
         self.db.insert_row(table_name, row_values)
-        print(f"{PROMPT}1 row inserted") # InsertResult
+        raise CustomException(Message.get_message(Message.INSERT_RESULT))
     
     def pk_value_exists(self, table_name, query_pk_values_dict):
         """ Check if the primary key value already exists in the table """
@@ -979,7 +977,7 @@ class MyTransformer(Transformer):
             fk_value = row_values[fk_column_name]
             query_fk_values_dict = {ref_column_name: fk_value}
             if len(self.db.retrieve_specific_pk_record(ref_table_name, query_fk_values_dict)) == 0:
-                raise CustomException("Insertion has failed: Referential integrity violation") # InsertReferentialIntegrityError
+                raise CustomException(Message.get_message(Message.INSERT_REFERENTIAL_INTEGRITY_ERROR))
 
     def update_query(self, items):
         print(PROMPT + "\'UPDATE\' requested")
@@ -1000,7 +998,7 @@ def parse_query(query, db):
         myTransformer.transform(output)
         return True # Parsing was successful
     except exceptions.UnexpectedInput:
-        print(PROMPT + "Syntax error")
+        print(PROMPT + "Syntax error") # Syntax Error
         return False # Parsing failed
     except exceptions.VisitError as e:
         if isinstance(e.orig_exc, CustomException):
