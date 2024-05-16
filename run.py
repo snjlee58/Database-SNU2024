@@ -475,7 +475,6 @@ class MyTransformer(Transformer):
         # Perform cartesian product from table in FROM clause
         initial_records, all_column_names = self.cartesian_product(referred_table_names)
         # print(initial_records) #DELETE
-        # print(column_names) #DELETE
 
         if len(selected_columns) == 0:
             # Select list non provided (SELECT *)
@@ -483,6 +482,9 @@ class MyTransformer(Transformer):
         else:
             # Select list provided
             column_names = [f"{table}.{column}" for column, table in select_column_table_map]
+
+        print(f"all column names: {all_column_names}") #DELETE
+        print(f"selected columns (with associated table name): {column_names}") #DELETE
 
         # # Check if there's a WHERE clause
         where_clause = items[2].children[1]
@@ -587,17 +589,16 @@ class MyTransformer(Transformer):
 
         raise CustomException(Message.get_message(Message.DELETE_RESULT, deleted_count))
 
-    #TODO
     def extract_conditions(self, where_node):
         bool_expr = where_node.children[1]
         boolean_terms = list(bool_expr.find_data("boolean_term"))
         boolean_terms_cnt = len(boolean_terms)
         boolean_factors = []
         condition_cnt = 0
+
         if boolean_terms_cnt == 1:
             # 1 condition / 2 conditions AND
             for boolean_factor in bool_expr.find_data("boolean_factor"):
-                # first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
                 condition = self.extract_boolean_factor(boolean_factor)
                 boolean_factors.append(condition)
                 condition_cnt = condition_cnt + 1
@@ -611,7 +612,6 @@ class MyTransformer(Transformer):
         else:
             # 2 conditions OR
             for boolean_factor in bool_expr.find_data("boolean_factor"):
-                # first_condition = self.extract_boolean_factor(boolean_terms[0].children[0])
                 condition = self.extract_boolean_factor(boolean_factor)
                 boolean_factors.append(condition)
                 condition_cnt = condition_cnt + 1
@@ -694,7 +694,7 @@ class MyTransformer(Transformer):
         elif operand_data_type.startswith("char"):
             return comp_op in (EQUAL, NOT_EQUAL)
         else:
-            return comp_op in ("is null", "is not null") #FIX
+            return comp_op in ("is null", "is not null") 
 
 
     def extract_boolean_factor(self, boolean_factor_node):
@@ -715,8 +715,8 @@ class MyTransformer(Transformer):
         else: 
             # null_predicate
             condition["type"] = "null_predicate"
-            table_name = predicate.children[0].children[0].value if isinstance(predicate.children[0], Tree) else None
-            column_name = predicate.children[1].children[0].value
+            table_name = predicate.children[0].children[0].value.lower() if isinstance(predicate.children[0], Tree) else None
+            column_name = predicate.children[1].children[0].value.lower()
             condition["predicate"]["left_operand"] = {"table_name": table_name, "column_name": column_name}
             condition["predicate"]["comp_op"] = "is null" if predicate.children[2].children[1] is None else "is not null"
 
@@ -727,11 +727,11 @@ class MyTransformer(Transformer):
         comp_operand = dict()
         if len(comp_operand_node.children) == 2:
             # Case 1: [table_name "."] column_name
-            comp_operand["table_name"] = comp_operand_node.children[0].children[0].value if isinstance(comp_operand_node.children[0], Tree) else None
-            comp_operand["column_name"] = comp_operand_node.children[1].children[0].value
+            comp_operand["table_name"] = comp_operand_node.children[0].children[0].value.lower() if isinstance(comp_operand_node.children[0], Tree) else None
+            comp_operand["column_name"] = comp_operand_node.children[1].children[0].value.lower()
         elif len(comp_operand_node.children) == 1:
             # Case 2: comparable_value
-            comp_operand["comparable_value"] = comp_operand_node.children[0].children[0].value
+            comp_operand["comparable_value"] = comp_operand_node.children[0].children[0].value.lower()
 
         return comp_operand
     
