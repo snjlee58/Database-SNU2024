@@ -439,33 +439,41 @@ class MyTransformer(Transformer):
         """ SELECT """
     
         # Extract table names from FROM clause
-        referred_table_names =[table_name.children[0].lower() for table_name in items[2].children[0].find_data("table_name")] 
+        from_table_names =[table_name.children[0].lower() for table_name in items[2].children[0].find_data("table_name")] 
         
-        for table_name in referred_table_names:
+        for table_name in from_table_names:
             # Check if table exists before proceeding
             if not self.table_name_exists(table_name):
                 raise CustomException(Message.get_message(Message.SELECT_TABLE_EXISTENCE_ERROR, table_name))
         
         # Get column details from SELECT clause
         select_list = items[1]  # Assuming this holds the select list
-        selected_columns = []  # This will hold tuples of (column, table if specified)
+        select_list_columns = []  # Holds tuples of (column_name, table_name if specified)
+        select_list_tables = [] # Holds all table names appearing in select list (SELECT lectures.id, student.name -> ['lectures', 'student'])
         for selected_column in select_list.find_data("selected_column"):
             table_name = selected_column.children[0].children[0].value.lower() if isinstance(selected_column.children[0], Tree) else None
             column_name = selected_column.children[1].children[0].value.lower()
-            selected_columns.append((table_name, column_name))
+            select_list_columns.append((table_name, column_name))
 
+        print(f"selected columns (before resolving tables): {select_list_columns}") #DELETE
         # Map columns to tables and check for ambiguity
         select_column_table_map = []
-        for specified_table, column in selected_columns:
+        for specified_table, column in select_list_columns:
             if specified_table:
+                # Check if table name exists
+                if not self.table_name_exists(specified_table):
+                    raise CustomException(Message.get_message(Message.SELECT_TABLE_EXISTENCE_ERROR, specified_table))
+                
                 # Direct mapping if table is specified
                 if not self.column_exists_in_table_name(column, specified_table):
                     raise CustomException(Message.get_message(Message.SELECT_COLUMN_RESOLVE_ERROR, column))
+                
                 select_column_table_map.append((column, specified_table))
+                select_list_tables.append(specified_table)
 
             else:
                 # Find all tables that contain the column if no table is specified
-                found_tables = [table for table in referred_table_names if self.column_exists_in_table_name(column, table)]
+                found_tables = [table for table in from_table_names if self.column_exists_in_table_name(column, table)]
                 if len(found_tables) > 1:
                    raise CustomException(Message.get_message(Message.SELECT_COLUMN_RESOLVE_ERROR, column))
                 elif not found_tables:
@@ -473,16 +481,21 @@ class MyTransformer(Transformer):
                 select_column_table_map.append((column, found_tables[0]))
             
         # Perform cartesian product from table in FROM clause
-        initial_records, all_column_names = self.cartesian_product(referred_table_names)
+        initial_records, all_column_names = self.cartesian_product(from_table_names)
         # print(initial_records) #DELETE
 
-        if len(selected_columns) == 0:
+        if len(select_list_columns) == 0:
             # Select list non provided (SELECT *)
             column_names = all_column_names
         else:
             # Select list provided
             column_names = [f"{table}.{column}" for column, table in select_column_table_map]
 
+        # Raise error if table in select list doesn't exist in FROM clause
+        unexisting_tables = set(select_list_tables) - set(from_table_names)
+        if len(unexisting_tables) > 0:
+            raise CustomException(Message.get_message(Message.SELECT_TABLE_EXISTENCE_ERROR, list(unexisting_tables)[0]))
+        
         print(f"all column names: {all_column_names}") #DELETE
         print(f"selected columns (with associated table name): {column_names}") #DELETE
 
@@ -496,7 +509,7 @@ class MyTransformer(Transformer):
             
             for condition in [conditions[0], conditions[2]]:
                 if condition is not None:
-                    self.validate_condition(condition, referred_table_names)
+                    self.validate_condition(condition, from_table_names)
 
             # Select records matching the conditions
             selected_records = []
