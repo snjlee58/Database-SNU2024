@@ -190,7 +190,6 @@ class MyTransformer(Transformer):
         This function assumes that the schema string for the table is correctly formatted and includes a section for foreign keys prefixed with 'FK:'.
         """
         schema_str = self.get_table_schema(table_name)
-        print(f"schema_str: {schema_str}") #DELETE
         foreign_keys = schema_str.split("|")[2].lstrip("FK:").split(";")
         if foreign_keys == ['']:
             return []
@@ -384,8 +383,7 @@ class MyTransformer(Transformer):
 
         self.db.insert_table(table_name, schema_enc)
         
-        raise CustomException(Message.get_message(Message.CREATE_TABLE_SUCCESS, table_name))
-
+        print(f"{PROMPT}'{table_name}' table is created") # CreateTableSuccess(#tableName)
 
     def drop_table_query(self, items):
         """ DROP TABLE """
@@ -402,8 +400,9 @@ class MyTransformer(Transformer):
 
         # Drop table
         self.db.drop_table(table_name) 
-        raise CustomException(Message.get_message(Message.DROP_SUCCESS, table_name))
-        
+
+        print(f"'{table_name}' table is dropped")
+
         
     def explain_query(self, items):
         """ EXPLAIN """
@@ -576,14 +575,15 @@ class MyTransformer(Transformer):
 
         # Retrieve all records from the table
         initial_records = [{f"{table_name}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_name)]
+        records_to_delete = []
         deleted_count = 0
 
         # Check if there's a WHERE clause
         where_clause = items[3]
         if where_clause is None:
             # No WHERE clause provided, delete all records
+            records_to_delete = initial_records
             deleted_count = len(initial_records)  # All records will be deleted
-            self.db.delete_all_table_records(table_name)
         else:
             # WHERE clause provided
             # Extract conditions from WHERE clause
@@ -597,10 +597,22 @@ class MyTransformer(Transformer):
             # Evaluate conditions and Delete records matching the conditions
             for record in initial_records:
                 if self.evaluate_conditions(record, conditions):
-                    self.db.delete_record(table_name, record)
+                    records_to_delete.append(record)
                     deleted_count += 1
 
-        raise CustomException(Message.get_message(Message.DELETE_RESULT, deleted_count))
+        # Check if any record to delete is referenced as foreign key in another table
+        foreign_key_referencing_records = self.get_foreign_key_referencing_records(table_name, records_to_delete)
+        # print(f"foreign_key_referencing_records: {foreign_key_referencing_records}") #DELETE
+        if len(foreign_key_referencing_records) > 0:
+            # print(f"number of referencing records: {len(foreign_key_referencing_records)}") #DELETE
+            raise CustomException(Message.get_message(Message.DELETE_REFERENTIAL_INTEGRITY_PASSED, deleted_count))
+
+        # Proceed with deletion if all checks passed
+        for record in records_to_delete:
+            self.db.delete_record(table_name, record)
+        
+        # raise CustomException(Message.get_message(Message.DELETE_RESULT, deleted_count))
+        print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
 
     def extract_conditions(self, where_node):
         bool_expr = where_node.children[1]
@@ -861,6 +873,30 @@ class MyTransformer(Transformer):
 
         return record_value
 
+    def get_foreign_key_referencing_records(self, table_name, records):
+        """ Check if the record is referenced by any foreign key in other tables """
+        referencing_tables = self.find_referencing_tables(table_name)
+        # print(f"referencing_tables for '{table_name}': {referencing_tables}") #DELETE
+        foreign_key_referencing_records = []
+        for record in records:
+            record_to_check = {key.split('.')[-1]: value for key, value in record.items()}
+            # print(f"record_to_check: {record_to_check}") #DELETE
+            for referencing_table in referencing_tables:
+                foreign_keys = self.get_foreign_keys(referencing_table)
+                # print(f"referencing_table '{referencing_table}' foreign_keys: {foreign_keys}") #DELETE
+                for fk in foreign_keys:
+                    fk_column, referenced_table_name, referenced_column = fk.split(":")
+                    # print(f"fk_column, ref_table_name, ref_column: {fk_column}, {referenced_table_name}, {referenced_column}") #DELETE
+                    if referenced_table_name == table_name:
+                        query = {fk_column: record_to_check[referenced_column]}
+                        # print(f"query: {query}") #DELETE
+                        referencing_record = self.db.retrieve_specific_pk_record(referencing_table, query)
+                        print(f"referencing record: {referencing_record}") #DELETE
+                        foreign_key_referencing_records.extend(referencing_record)
+
+                    # print(f"--------") #DELETE
+        return foreign_key_referencing_records
+
     def insert_query(self, items):
         """ INSERT """
         table_name = items[2].children[0].lower()
@@ -969,7 +1005,7 @@ class MyTransformer(Transformer):
 
         # # Insert the row into the database
         self.db.insert_row(table_name, row_values)
-        raise CustomException(Message.get_message(Message.INSERT_RESULT))
+        print(f"{PROMPT}1 row inserted") # InsertResult
     
     def pk_value_exists(self, table_name, query_pk_values_dict):
         """ Check if the primary key value already exists in the table """
