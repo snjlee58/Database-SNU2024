@@ -611,7 +611,6 @@ class MyTransformer(Transformer):
         for record in records_to_delete:
             self.db.delete_record(table_name, record)
         
-        # raise CustomException(Message.get_message(Message.DELETE_RESULT, deleted_count))
         print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
 
     def extract_conditions(self, where_node):
@@ -643,7 +642,6 @@ class MyTransformer(Transformer):
             
             conditions = (boolean_factors[0], OR, boolean_factors[1])
 
-        print(f"conditions: {conditions}") #DELETE
         return conditions
 
     def validate_condition(self, condition, table_names):
@@ -720,7 +718,6 @@ class MyTransformer(Transformer):
             return comp_op in (EQUAL, NOT_EQUAL)
         else:
             return comp_op in ("is null", "is not null") 
-
 
     def extract_boolean_factor(self, boolean_factor_node):
         condition = dict()
@@ -809,8 +806,6 @@ class MyTransformer(Transformer):
             
             operator = condition["predicate"]["comp_op"]
 
-        # print(f"column_key: {column_key}") #DELETE
-        # print(f"record: {record}") #DELETE
         print(f"left_operand_value: {left_operand_value}") #DELETE
         print(f"right_operand_value: {right_operand_value}") #DELETE
 
