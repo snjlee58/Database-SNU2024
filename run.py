@@ -817,7 +817,7 @@ class MyTransformer(Transformer):
         # Evaluate comparison based on the operator
         if condition_type == "comparison_predicate":
             if NULL in [left_operand_value, right_operand_value]:
-                # Any comparison with NULL returns 
+                # Any comparison with NULL is UNKNOWN, thus returns False
                 result = False
             elif operator == '=':
                 result = left_operand_value == right_operand_value
@@ -929,15 +929,11 @@ class MyTransformer(Transformer):
             # Check if all Primary Keys are included in the column list
             primary_keys_set = set(self.get_primary_keys(table_name))
             unincluded_pks_set = primary_keys_set - set(column_names_query)
-            # print(f"primary keys: {primary_keys_set}") #DELETE
-            # print(f"column_names_query: {column_names_query}") #DELETE
-            # print(f"unincluded pks: {unincluded_pks_set}") #DELETE
             if len(unincluded_pks_set) > 0:
                 raise CustomException(Message.get_message(Message.INSERT_COLUMN_NON_NULLABLE_ERROR, list(unincluded_pks_set)[0]))
         else:
             # If column list isn't specified in query, extract from schema
             column_names_query = [col.split(":")[0] for col in schema]
-
 
         # Initialize values with null (fills in ungiven values with null)
         row_values  = {col.split(":")[0]: "null" for col in schema}
@@ -1008,17 +1004,36 @@ class MyTransformer(Transformer):
         print(f"{PROMPT}1 row inserted") # InsertResult
     
     def pk_value_exists(self, table_name, query_pk_values_dict):
-        """ Check if the primary key value already exists in the table """
+        """
+        Check if the primary key value already exists in the table.
+
+        Parameters:
+        - table_name (str): The name of the table.
+        - query_pk_values_dict (dict): The dict containing primary key and value to match.
+
+        Returns:
+        - bool: True if the primary key value exists, False otherwise.
+        """
         existing_value = self.db.retrieve_specific_pk_record(table_name, query_pk_values_dict)
         return len(existing_value) != 0
 
     def verify_foreign_keys(self, table_name, row_values):
-        """Verifies that foreign key values exist as primary keys in their respective referenced tables."""
-        foreign_keys_info_list = self.get_foreign_keys(table_name)  # This method should be implemented to return details about foreign keys and their referenced tables
+        """
+        Verifies that foreign key values exist as primary keys in their respective referenced tables.
+
+        Parameters:
+        - table_name (str): The name of the table.
+        - row_values (dict): The dictionary containing column names and their corresponding values.
+
+        Raises:
+        - CustomException: If a foreign key value does not exist as a primary key in the referenced table.
+        """
         
+        # Return details about foreign keys and their referenced tables
+        foreign_keys_info_list = self.get_foreign_keys(table_name)  
+
         if len(foreign_keys_info_list) == 0:
             # Skip verification if table doesn't have any Foreign Keys
-            print("No foreign key: Skipped verification") #DELETE
             return 
         
         for foreign_key_info in foreign_keys_info_list:
