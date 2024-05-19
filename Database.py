@@ -66,7 +66,7 @@ class Database:
         record = cursor.first()
         while record:
             key_prefix = table_name + "#"
-            if record[0].decode().startswith(key_prefix):  #FIX naming convention
+            if record[0].decode().startswith(key_prefix): 
                 self.db.delete(record[0])
             record = cursor.next()
         cursor.close()

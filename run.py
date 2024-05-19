@@ -236,7 +236,7 @@ class MyTransformer(Transformer):
                     # Safely unpack the foreign key information assuming it's well-formed
                     if fk.count(':') == 2:  # Check that the foreign key string is in the expected format
                         _, ref_table_name, _ = fk.split(":")
-                        if ref_table_name == table_name: #FIX: change to indexing
+                        if ref_table_name == table_name: 
                             referencing_tables.append(potential_referrer)
         return referencing_tables
 
