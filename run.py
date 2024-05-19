@@ -514,7 +514,24 @@ class MyTransformer(Transformer):
             self.print_select_results(column_names, selected_records)
 
     def cartesian_product(self, table_names):
-        """ Generate the Cartesian product of multiple tables. """
+        """
+        Generate the Cartesian product of multiple tables.
+
+        This function takes a list of table names and returns the Cartesian product of the records
+        in these tables. It combines each record from the first table with each record from the 
+        subsequent tables, creating a new set of combined records.
+
+        Parameters:
+        table_names (list of str): A list of table names for which the Cartesian product is to be generated.
+
+        Returns:
+        tuple:
+            - result (list of dict): A list of dictionaries where each dictionary represents a combined 
+            record from the Cartesian product of the input tables. The keys in the dictionary are 
+            formatted as 'table_name.column_name' to avoid any naming conflicts.
+            - column_names (list of str): A list of column names for the resulting records, each prefixed 
+            with the table name to maintain uniqueness (formatted as 'table_name.column').
+        """
 
         # Start with the records from the first table
         result = [{f"{table_names[0]}.{key}": value for key, value in record.items()} for record in self.db.retrieve_records(table_names[0])]
@@ -536,7 +553,6 @@ class MyTransformer(Transformer):
         return result, column_names
 
     def print_select_results(self, column_names, records):
-
         # Print header
         print("+--------------------------------------+") 
         column_name_formatted = "\t|".join([column for column in column_names if '#' not in column])
@@ -607,6 +623,20 @@ class MyTransformer(Transformer):
         print(f"{PROMPT}{deleted_count} row(s) deleted") # DeleteResult(#count)
 
     def extract_conditions(self, where_node):
+        """
+        Extracts conditions from a WHERE clause.
+
+        This function processes the WHERE clause of a SQL query and extracts the conditions, 
+        which can be either a single condition or a combination of conditions connected by 
+        AND/OR operators.
+
+        Parameters:
+        where_node (Tree): The parsed WHERE clause node from the SQL query.
+
+        Returns:
+        tuple: A tuple representing the conditions extracted from the WHERE clause. The structure 
+            of the tuple is (condition1, operator, condition2) where operator can be AND/OR/None.
+        """
         bool_expr = where_node.children[1]
         boolean_terms = list(bool_expr.find_data("boolean_term"))
         boolean_terms_cnt = len(boolean_terms)
@@ -638,6 +668,19 @@ class MyTransformer(Transformer):
         return conditions
 
     def validate_condition(self, condition, table_names):
+        """
+        Validates a condition in a WHERE clause.
+
+        This function validates the condition extracted from a WHERE clause, ensuring that 
+        the table and column references are correct and the comparison is valid.
+
+        Parameters:
+        condition (dict): The condition to validate.
+        table_names (list of str): List of table names referenced in the query.
+
+        Raises:
+        CustomException: If there is an error with the table/column references or the comparison.
+        """
         predicate_condition_type = condition["type"]
         
         if predicate_condition_type == "comparison_predicate":
@@ -709,6 +752,18 @@ class MyTransformer(Transformer):
             return comp_op in ("is null", "is not null") 
 
     def extract_boolean_factor(self, boolean_factor_node):
+        """
+        Extracts a boolean factor from a parsed WHERE clause node.
+
+        This function processes a boolean factor node and extracts the condition, 
+        which can be either a comparison or null predicate.
+
+        Parameters:
+        boolean_factor_node (Tree): The parsed boolean factor node from the WHERE clause.
+
+        Returns:
+        dict: A dictionary representing the extracted condition.
+        """
         condition = dict()
 
         condition["is_not"] = False if boolean_factor_node.children[0] is None else True
@@ -733,8 +788,19 @@ class MyTransformer(Transformer):
 
         return condition
 
-     # Function to handle operand that might be a column reference or a comparable value
     def extract_operand(self, comp_operand_node):
+        """
+        Extracts an operand from a parsed comparison predicate node.
+
+        This function processes a comparison operand node and extracts the operand, 
+        which can be either a column reference or a comparable value.
+
+        Parameters:
+        comp_operand_node (Tree): The parsed comparison operand node.
+
+        Returns:
+        dict: A dictionary representing the extracted operand.
+        """
         comp_operand = dict()
         if len(comp_operand_node.children) == 2:
             # Case 1: [table_name "."] column_name
@@ -758,6 +824,18 @@ class MyTransformer(Transformer):
                 return CHAR
 
     def evaluate_conditions(self, record, condition):
+        """
+        Evaluates conditions against a record.
+
+        This function checks if a record meets the conditions specified in the WHERE clause.
+
+        Parameters:
+        record (dict): The record to evaluate.
+        condition (tuple): The conditions extracted from the WHERE clause.
+
+        Returns:
+        bool: True if the record meets all the conditions, False otherwise.
+        """
         results = []  
         # for condition in conditions:
         if condition[1] is None:
@@ -773,7 +851,19 @@ class MyTransformer(Transformer):
                 results.append(cond1_result or cond2_result)
         return all(results)
     
-    def evaluate_single_condition(self, record, condition):     
+    def evaluate_single_condition(self, record, condition):
+        """
+        Evaluates a single condition against a record.
+
+        This function checks if a record meets a single condition from the WHERE clause.
+
+        Parameters:
+        record (dict): The record to evaluate.
+        condition (dict): The single condition to evaluate.
+
+        Returns:
+        bool: True if the record meets the condition, False otherwise.
+        """    
         # Extract column, operator and value from WHERE condition
         condition_negation = condition["is_not"]
         condition_type = condition["type"]
@@ -821,6 +911,19 @@ class MyTransformer(Transformer):
         return result
 
     def extract_record_value(self, record, operand):
+        """
+        Extracts the value of an operand from a record.
+
+        This function retrieves the value of an operand, which can be either a column reference 
+        or a comparable value, from the given record.
+
+        Parameters:
+        record (dict): The record from which to extract the value.
+        operand (dict): The operand to extract.
+
+        Returns:
+        any: The extracted value, with appropriate type conversion.
+        """
         # Handle cases where table name is provided and when it is not.
         if operand["operand_type"] == "column_reference":
             # Column reference value
@@ -851,7 +954,19 @@ class MyTransformer(Transformer):
         return record_value
 
     def get_foreign_key_referencing_records(self, table_name, records):
-        """ Check if the record is referenced by any foreign key in other tables """
+        """
+        Checks if the record is referenced by any foreign key in other tables.
+
+        This function checks if any of the records in the given table are referenced 
+        by foreign keys in other tables.
+
+        Parameters:
+        table_name (str): The name of the table containing the records to check.
+        records (list of dict): The records to check for foreign key references.
+
+        Returns:
+        list of dict: A list of records that reference the given records via foreign keys.
+        """
         referencing_tables = self.find_referencing_tables(table_name)
         foreign_key_referencing_records = []
         for record in records:
