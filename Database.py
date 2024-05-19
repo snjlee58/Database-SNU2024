@@ -182,9 +182,8 @@ class Database:
             record = cursor.first()
             while record:
                 key, value = record
-                if key.decode().startswith(f"{table_name}#"):  #FIX naming convention
+                if key.decode().startswith(f"{table_name}#"):  
                     record_data = json.loads(value.decode('utf-8'))
-                    # print(record_data) #DELETE
                     records.append(record_data)  # Decoded JSON 
                 record = cursor.next()
             cursor.close()
@@ -206,27 +205,19 @@ class Database:
         try:
             cursor = self.db.cursor()
             record = cursor.first()
-            matched_records = [] #DELETE
+            matched_records = [] 
             
             pk_column_list = list(query_pk_values_dict.keys())
-            print(f"pk_column_list: {table_name}.{pk_column_list}") #DELETE
             while record:
-                # Assuming key format is "tablename#primarykey"
-                if record[0].decode().startswith(f"{table_name}#"):
+                if record[0].decode().startswith(f"{table_name}#"): # Key format is "tablename#primarykey"
                     record_data = json.loads(record[1].decode())
                     record_pk_data = {pk_column: record_data[pk_column] for pk_column in pk_column_list}
-                    print(f"record_pk_data: {record_pk_data}") #DELETE
                     if record_pk_data ==  query_pk_values_dict:
-                        matched_records.append(record_data) #DELETE (DEBUG)
+                        matched_records.append(record_data) 
                 record = cursor.next()
-            
-            print(f"matched records with pk: {matched_records}") #DELETE
-            if len(matched_records) > 1: #DELETE (DEBUG)
-                print("WHY ARE THERE DUPLICATE PKS") #DELETE (DEBUG)
             
             cursor.close()
             return matched_records
         except Exception as e:
-            raise Exception #DELETE
             return None
 

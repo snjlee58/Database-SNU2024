@@ -454,7 +454,6 @@ class MyTransformer(Transformer):
             column_name = selected_column.children[1].children[0].value.lower()
             select_list_columns.append((table_name, column_name))
 
-        print(f"selected columns (before resolving tables): {select_list_columns}") #DELETE
         # Map columns to tables and check for ambiguity
         select_column_table_map = []
         for specified_table, column in select_list_columns:
@@ -481,7 +480,6 @@ class MyTransformer(Transformer):
             
         # Perform cartesian product from table in FROM clause
         initial_records, all_column_names = self.cartesian_product(from_table_names)
-        # print(initial_records) #DELETE
 
         if len(select_list_columns) == 0:
             # Select list non provided (SELECT *)
@@ -494,9 +492,6 @@ class MyTransformer(Transformer):
         unexisting_tables = set(select_list_tables) - set(from_table_names)
         if len(unexisting_tables) > 0:
             raise CustomException(Message.get_message(Message.SELECT_TABLE_EXISTENCE_ERROR, list(unexisting_tables)[0]))
-        
-        print(f"all column names: {all_column_names}") #DELETE
-        print(f"selected columns (with associated table name): {column_names}") #DELETE
 
         # # Check if there's a WHERE clause
         where_clause = items[2].children[1]
@@ -602,9 +597,7 @@ class MyTransformer(Transformer):
 
         # Check if any record to delete is referenced as foreign key in another table
         foreign_key_referencing_records = self.get_foreign_key_referencing_records(table_name, records_to_delete)
-        # print(f"foreign_key_referencing_records: {foreign_key_referencing_records}") #DELETE
         if len(foreign_key_referencing_records) > 0:
-            # print(f"number of referencing records: {len(foreign_key_referencing_records)}") #DELETE
             raise CustomException(Message.get_message(Message.DELETE_REFERENTIAL_INTEGRITY_PASSED, deleted_count))
 
         # Proceed with deletion if all checks passed
@@ -700,15 +693,11 @@ class MyTransformer(Transformer):
                 comparable_value_operand["operand_type"] = "comparable_value"
             # Validate operation data types
             if not self.data_type_matches(left_operand["data_type"], right_operand["data_type"]):
-                print("operand data types dont match") #DELETE
                 raise CustomException(Message.get_message(Message.WHERE_INCOMPARABLE_ERROR))
             elif not self.valid_operator(operator, left_operand["data_type"]):
-                print("invalid operator for operands") #DELETE
                 raise CustomException(Message.get_message(Message.WHERE_INCOMPARABLE_ERROR))
-            print(f"operands: {operands}") #DELETE
 
     def data_type_matches(self, left_operand_data_type, right_operand_data_type):
-        print(left_operand_data_type, right_operand_data_type) #DELETE
         return left_operand_data_type.startswith("char") and right_operand_data_type.startswith("char") or left_operand_data_type == right_operand_data_type
     
     def valid_operator(self, comp_op, operand_data_type):
@@ -782,12 +771,10 @@ class MyTransformer(Transformer):
                 results.append(cond1_result and cond2_result)
             elif condition[1].lower() == OR:
                 results.append(cond1_result or cond2_result)
-        print(f"evaluate_conditions results: {results}") #DELETE
         return all(results)
     
     def evaluate_single_condition(self, record, condition):     
         # Extract column, operator and value from WHERE condition
-        print(record) #DELETE
         condition_negation = condition["is_not"]
         condition_type = condition["type"]
 
@@ -805,9 +792,6 @@ class MyTransformer(Transformer):
             left_operand_value = self.extract_record_value(record, condition["predicate"]["left_operand"])
             
             operator = condition["predicate"]["comp_op"]
-
-        print(f"left_operand_value: {left_operand_value}") #DELETE
-        print(f"right_operand_value: {right_operand_value}") #DELETE
 
         # Evaluate comparison based on the operator
         if condition_type == "comparison_predicate":
@@ -832,14 +816,12 @@ class MyTransformer(Transformer):
             elif operator == "is not null":
                 result = left_operand_value != NULL
         
-        print(f"result: {result}") #DELETE
         if condition_negation:
             return not result
         return result
 
     def extract_record_value(self, record, operand):
         # Handle cases where table name is provided and when it is not.
-        print(operand) #DELETE
         if operand["operand_type"] == "column_reference":
             # Column reference value
             table_name = operand["table_name"]
@@ -871,25 +853,18 @@ class MyTransformer(Transformer):
     def get_foreign_key_referencing_records(self, table_name, records):
         """ Check if the record is referenced by any foreign key in other tables """
         referencing_tables = self.find_referencing_tables(table_name)
-        # print(f"referencing_tables for '{table_name}': {referencing_tables}") #DELETE
         foreign_key_referencing_records = []
         for record in records:
             record_to_check = {key.split('.')[-1]: value for key, value in record.items()}
-            # print(f"record_to_check: {record_to_check}") #DELETE
             for referencing_table in referencing_tables:
                 foreign_keys = self.get_foreign_keys(referencing_table)
-                # print(f"referencing_table '{referencing_table}' foreign_keys: {foreign_keys}") #DELETE
                 for fk in foreign_keys:
                     fk_column, referenced_table_name, referenced_column = fk.split(":")
-                    # print(f"fk_column, ref_table_name, ref_column: {fk_column}, {referenced_table_name}, {referenced_column}") #DELETE
                     if referenced_table_name == table_name:
                         query = {fk_column: record_to_check[referenced_column]}
-                        # print(f"query: {query}") #DELETE
                         referencing_record = self.db.retrieve_specific_pk_record(referencing_table, query)
-                        print(f"referencing record: {referencing_record}") #DELETE
                         foreign_key_referencing_records.extend(referencing_record)
 
-                    # print(f"--------") #DELETE
         return foreign_key_referencing_records
 
     def insert_query(self, items):
@@ -1052,7 +1027,6 @@ with open('grammar.lark') as file:
 def parse_query(query, db):
     try:
         output = sql_parser.parse(query)
-        print(output.pretty()) #DELETE
         myTransformer = MyTransformer(db)
         myTransformer.transform(output)
         return True # Parsing was successful
@@ -1102,9 +1076,6 @@ def main():
         
         # Separate input string into list of queries based on ";" separator
         queries = user_input.split(";")
-
-        # Debug (personal use): outputs list of queries processed
-        # debug(user_input) #DELETE
 
         # Iterate through each individual query and process it through the lark parser
         for q in queries[:-1]:
