@@ -20,15 +20,16 @@ def initialize_database():
             # Create tables
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS books (
-                b_id INT PRIMARY KEY,
-                b_title VARCHAR(255) NOT NULL,
-                b_author VARCHAR(255) NOT NULL
+                b_id INT AUTO_INCREMENT PRIMARY KEY,
+                b_title VARCHAR(50) NOT NULL,
+                b_author VARCHAR(50) NOT NULL,
+                UNIQUE (b_title, b_author) 
             );''')
 
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                u_id INT PRIMARY KEY,
-                u_name VARCHAR(255) NOT NULL
+                u_id INT AUTO_INCREMENT PRIMARY KEY,
+                u_name VARCHAR(10) NOT NULL
             );''')
 
             cursor.execute('''
@@ -43,20 +44,38 @@ def initialize_database():
             # Insert unique books
             books = data[['b_id', 'b_title', 'b_author']].drop_duplicates()
             for _, row in books.iterrows():
-                sql = 'INSERT INTO books (b_id, b_title, b_author) VALUES (%s, %s, %s)'
-                cursor.execute(sql, (row['b_id'], row['b_title'], row['b_author']))
+                b_id = int(row['b_id'])
+                b_title = row['b_title']
+                b_author = row['b_author']
+
+                sql = 'INSERT INTO books (b_id, b_title, b_author) VALUES (%s, %s, %s);'
+                cursor.execute(sql, (b_id, b_title, b_author))
+
+            # Set the auto-increment value to the maximum b_id + 1
+            cursor.execute('SELECT MAX(b_id) FROM books')
+            result = cursor.fetchone()
+            if result and result['MAX(b_id)'] is not None:
+                max_id = result['MAX(b_id)']
+                cursor.execute(f'ALTER TABLE books AUTO_INCREMENT = {max_id + 1};')
 
             # Insert unique users
             users = data[['u_id', 'u_name']].drop_duplicates()
             for _, row in users.iterrows():
+                u_id = int(row['u_id'])
+                u_name = row['u_name']
+
                 sql = 'INSERT INTO users (u_id, u_name) VALUES (%s, %s);'
-                cursor.execute(sql, (row['u_id'], row['u_name']))
+                cursor.execute(sql, (u_id, u_name))
 
             # Insert ratings
             ratings = data[['b_id', 'u_id', 'b_u_rating']]
             for _, row in ratings.iterrows():
+                b_id = int(row['b_id'])
+                u_id = int(row['u_id'])
+                b_u_rating = int(row['b_u_rating'])
+
                 sql = 'INSERT INTO ratings (b_id, u_id, b_u_rating) VALUES (%s, %s, %s);'
-                cursor.execute(sql, (row['b_id'], row['u_id'], row['b_u_rating']))
+                cursor.execute(sql, (b_id, u_id, b_u_rating))
 
         # Commit changes
         connection.commit()
@@ -79,11 +98,21 @@ def reset():
         connection.commit()
     pass
 
+# SELECT query. Return results.
 def fetch(sql):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute(sql)
         result = cursor.fetchall()
         return result
+
+# INSERT, DELETE query.
+def execute(sql, params=None):
+    with connection.cursor(dictionary=True) as cursor:
+        if params:
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql)
+        connection.commit()
 
 def print_books():
     print_books_sql = 'SELECT b_id, b_title, b_author FROM books;'
@@ -104,14 +133,32 @@ def print_users():
     users = fetch(print_users_sql)
 
     print(format_results('users', users))
-    # print msg
 
 def insert_book():
     title = input('Book title: ')
     author = input('Book author: ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+
+    if not (1 <= len(title) <= 50):
+        print("Title length should range from 1 to 50 characters") #E1
+        return
+    if not (1 <= len(author) <= 30):
+        print("Author length should range from 1 to 30 characters") #E2
+        return
+    
+    with connection.cursor() as cursor:
+        # Check if the combination of title and author already exists
+        cursor.execute('SELECT * FROM books WHERE b_title = %s AND b_author = %s', (title, author))
+        result = cursor.fetchone()
+        if result:
+            print(f"Book [({title}, {author})] already exists") #E3
+            return
+
+        # Insert new book
+        sql = 'INSERT INTO books (b_title, b_author) VALUES (%s, %s)'
+        execute(sql, (title, author))
+        print("One book successfully inserted") #S3
+
 
 def remove_book():
     book_id = input('Book ID: ')
@@ -122,8 +169,14 @@ def remove_book():
 def insert_user():
     name = input('User name: ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+    if not (1 <= len(name) <= 10):
+        print("Username length should range from 1 to 10 characters") #E4
+        return
+    
+    # Insert new user
+    sql = 'INSERT INTO users (u_name) VALUES (%s);'
+    execute(sql, (name,))
+    print("One user successfully inserted") #S2
 
 def remove_user():
     user_id = input('User ID: ')
