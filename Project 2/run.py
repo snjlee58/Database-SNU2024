@@ -23,6 +23,8 @@ def initialize_database():
                 b_id INT AUTO_INCREMENT PRIMARY KEY,
                 b_title VARCHAR(50) NOT NULL,
                 b_author VARCHAR(50) NOT NULL,
+                available_copies INT DEFAULT 1,
+                avg_rating FLOAT DEFAULT 0,
                 UNIQUE (b_title, b_author) 
             );''')
 
@@ -41,6 +43,18 @@ def initialize_database():
                 FOREIGN KEY (u_id) REFERENCES users (u_id)
             );''')
 
+            # Create borrowings table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS borrowings (
+                borrow_id INT AUTO_INCREMENT PRIMARY KEY,
+                b_id INT NOT NULL,
+                u_id INT NOT NULL,
+                returned BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (b_id) REFERENCES books(b_id),
+                FOREIGN KEY (u_id) REFERENCES users(u_id)
+            );
+            ''')
+
             # Insert unique books
             books = data[['b_id', 'b_title', 'b_author']].drop_duplicates()
             for _, row in books.iterrows():
@@ -50,13 +64,6 @@ def initialize_database():
 
                 sql = 'INSERT INTO books (b_id, b_title, b_author) VALUES (%s, %s, %s);'
                 cursor.execute(sql, (b_id, b_title, b_author))
-
-            # Set the auto-increment value to the maximum b_id + 1
-            cursor.execute('SELECT MAX(b_id) FROM books')
-            result = cursor.fetchone()
-            if result and result['MAX(b_id)'] is not None:
-                max_id = result['MAX(b_id)']
-                cursor.execute(f'ALTER TABLE books AUTO_INCREMENT = {max_id + 1};')
 
             # Insert unique users
             users = data[['u_id', 'u_name']].drop_duplicates()
@@ -92,7 +99,7 @@ def initialize_database():
 def reset():
     # YOUR CODE GOES HERE
     with connection.cursor(dictionary=True) as cursor:
-        sql = 'DROP TABLE books, users, ratings;'
+        sql = 'DROP TABLE books, users, ratings, borrowings;'
         cursor.execute(sql)
         initialize_database()
         connection.commit()
@@ -115,15 +122,15 @@ def execute(sql, params=None):
         connection.commit()
 
 def print_books():
-    print_books_sql = 'SELECT b_id, b_title, b_author FROM books;'
+    print_books_sql = 'SELECT b_id, b_title, b_author FROM books ORDER BY b_id;' #FIX: get rid of orderby?
     books = fetch(print_books_sql)
     
     for book in books:
         b_id = book['b_id']
         b_title = book['b_title']
         b_author = book['b_author']
-        book['avg_rating'] = 5
-        book['available_copies'] = 1
+        b_available_copies = book['available_copies']
+        b_avg_rating = book['avg_rating'] 
     
     print(format_results('books', books))
 
@@ -159,13 +166,51 @@ def insert_book():
         execute(sql, (title, author))
         print("One book successfully inserted") #S3
 
-
 def remove_book():
-    book_id = input('Book ID: ')
+    b_id = input('Book ID: ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+    
+    # Check if the book exists
+    if not book_exists(b_id):
+        print(f'Book {b_id} does not exist')  # E5
+        return
+    
+    with connection.cursor(dictionary=True) as cursor:
+        # Check if the book is currently borrowed
+        # cursor.execute('SELECT * FROM borrowings WHERE b_id = %s AND return_date IS NULL', (b_id,))
+        # borrowing = cursor.fetchone()
+        # if borrowing:
+        #     print("Error: The book is currently borrowed and cannot be deleted.")  # E2
+        #     return
 
+        # Delete related ratings
+        cursor.execute('DELETE FROM ratings WHERE b_id = %s', (b_id,))
+
+        # Delete related borrowings
+        # cursor.execute('DELETE FROM borrowings WHERE b_id = %s', (b_id,))
+
+        # Delete the book
+        cursor.execute('DELETE FROM books WHERE b_id = %s', (b_id,))
+
+        connection.commit()
+        print("One book successfully removed")  # S5
+
+
+    # print msg
+    # pass
+
+def book_exists(b_id):
+    with connection.cursor(dictionary=True) as cursor:
+        cursor.execute('SELECT * FROM books WHERE b_id = %s', (b_id,))
+        book = cursor.fetchone()
+        return book is not None
+
+def user_exists(u_id):
+    with connection.cursor(dictionary=True) as cursor:
+        cursor.execute('SELECT * FROM users WHERE u_id = %s', (u_id,))
+        user = cursor.fetchone()
+        return user is not None
+    
 def insert_user():
     name = input('User name: ')
     # YOUR CODE GOES HERE
@@ -184,12 +229,49 @@ def remove_user():
     # print msg
     pass
 
+def available_copies_exists(b_id):
+    with connection.cursor(dictionary=True) as cursor:
+        cursor.execute('SELECT available_copies FROM books WHERE b_id = %s', (b_id,))
+        available_copies = cursor.fetchone()['available_copies']
+        return available_copies > 0
+    
+# 8. 도서 대출
 def checkout_book():
-    book_id = input('Book ID: ')
-    user_id = input('User ID: ')
+    b_id = input('Book ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+
+    with connection.cursor(dictionary=True) as cursor:
+        # Check if the book exists
+        if not book_exists(b_id):
+            print(f'Book {b_id} does not exist') #E5
+            return
+
+        # Check if the user exists
+        if not user_exists(u_id):
+            print(f"User {u_id} does not exist") #E7
+            return
+
+        # Check available copies
+        if not available_copies_exists(b_id):
+            print("Cannot delete a book that is currently borrowed") #E6
+            return
+
+        # Check user's borrowing count
+        cursor.execute('SELECT COUNT(*) as borrow_count FROM borrowings WHERE u_id = %s AND returned = FALSE', (u_id,))
+        borrow_count = cursor.fetchone()['borrow_count']
+        if borrow_count >= 2:
+            print(f"User {u_id} exceeded the maximum borrowing limit")  #E10
+            return
+
+        # Update available copies
+        cursor.execute('UPDATE books SET available_copies = available_copies - 1 WHERE b_id = %s', (b_id,))
+
+        # Insert borrowing record
+        cursor.execute('INSERT INTO borrowings (b_id, u_id) VALUES (%s, %s)', (b_id, u_id))
+
+        connection.commit()
+        print("Book successfully checked out")  # S6
 
 def return_and_rate_book():
     book_id = input('book ID: ')
@@ -230,9 +312,6 @@ def recommend_item_based():
     pass
 
 def format_results(type, results):
-    line = '--------------------------------------------------------------------------------------------------------------------------\n'
-    res = line
-
     # Set Headers and Spacing Format
     if type == 'books':
         headers = ['b_id', 'b_title', 'b_author', 'avg_rating', 'available_copies']
@@ -240,6 +319,12 @@ def format_results(type, results):
     elif type == 'users':
         headers = ['u_id', 'u_name']
         formats = [8, 30]
+
+    # Calculate length of separator
+    total_length = sum(formats) + len(formats) - 1  # Adding len(formats) - 1 for spaces between columns
+    line = '-' * total_length + '\n'
+    # line = '--------------------------------------------------------------------------------------------------------------------------\n'
+    res = line
 
     # Add Headers
     for i in range(len(headers)):
