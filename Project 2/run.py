@@ -23,8 +23,8 @@ def initialize_database():
                 b_id INT AUTO_INCREMENT PRIMARY KEY,
                 b_title VARCHAR(50) NOT NULL,
                 b_author VARCHAR(50) NOT NULL,
-                available_copies INT DEFAULT 1,
-                avg_rating FLOAT DEFAULT 0,
+                b_available_copies INT DEFAULT 1,
+                b_avg_rating FLOAT DEFAULT 0,
                 UNIQUE (b_title, b_author) 
             );''')
 
@@ -84,6 +84,15 @@ def initialize_database():
                 sql = 'INSERT INTO ratings (b_id, u_id, b_u_rating) VALUES (%s, %s, %s);'
                 cursor.execute(sql, (b_id, u_id, b_u_rating))
 
+            # Calculate and update average ratings for each book
+            cursor.execute('SELECT b_id FROM books;')
+            b_ids = cursor.fetchall()
+            for book in b_ids:
+                b_id = book['b_id']
+                cursor.execute('SELECT AVG(b_u_rating) as avg_rating FROM ratings WHERE b_id = %s', (b_id,))
+                avg_rating = cursor.fetchone()['avg_rating']
+                cursor.execute('UPDATE books SET b_avg_rating = %s WHERE b_id = %s', (avg_rating, b_id))
+
         # Commit changes
         connection.commit()
 
@@ -122,15 +131,15 @@ def execute(sql, params=None):
         connection.commit()
 
 def print_books():
-    print_books_sql = 'SELECT b_id, b_title, b_author FROM books ORDER BY b_id;' #FIX: get rid of orderby?
+    print_books_sql = 'SELECT * FROM books ORDER BY b_id;' 
     books = fetch(print_books_sql)
     
     for book in books:
         b_id = book['b_id']
         b_title = book['b_title']
         b_author = book['b_author']
-        b_available_copies = book['available_copies']
-        b_avg_rating = book['avg_rating'] 
+        b_available_copies = book['b_available_copies']
+        b_avg_rating = book['b_avg_rating'] 
     
     print(format_results('books', books))
 
@@ -144,8 +153,8 @@ def print_users():
 def insert_book():
     title = input('Book title: ')
     author = input('Book author: ')
+    
     # YOUR CODE GOES HERE
-
     if not (1 <= len(title) <= 50):
         print("Title length should range from 1 to 50 characters") #E1
         return
@@ -166,6 +175,7 @@ def insert_book():
         execute(sql, (title, author))
         print("One book successfully inserted") #S3
 
+# 6. 도서 삭제
 def remove_book():
     b_id = input('Book ID: ')
     # YOUR CODE GOES HERE
@@ -223,6 +233,7 @@ def insert_user():
     execute(sql, (name,))
     print("One user successfully inserted") #S2
 
+# 7. 회원 삭제
 def remove_user():
     user_id = input('User ID: ')
     # YOUR CODE GOES HERE
@@ -231,16 +242,16 @@ def remove_user():
 
 def available_copies_exists(b_id):
     with connection.cursor(dictionary=True) as cursor:
-        cursor.execute('SELECT available_copies FROM books WHERE b_id = %s', (b_id,))
-        available_copies = cursor.fetchone()['available_copies']
-        return available_copies > 0
+        cursor.execute('SELECT b_available_copies FROM books WHERE b_id = %s', (b_id,))
+        b_available_copies = cursor.fetchone()['b_available_copies']
+        return b_available_copies > 0
     
 # 8. 도서 대출
 def checkout_book():
     b_id = input('Book ID: ')
     u_id = input('User ID: ')
+    
     # YOUR CODE GOES HERE
-
     with connection.cursor(dictionary=True) as cursor:
         # Check if the book exists
         if not book_exists(b_id):
@@ -265,21 +276,76 @@ def checkout_book():
             return
 
         # Update available copies
-        cursor.execute('UPDATE books SET available_copies = available_copies - 1 WHERE b_id = %s', (b_id,))
+        cursor.execute('UPDATE books SET b_available_copies = b_available_copies - 1 WHERE b_id = %s', (b_id,))
 
         # Insert borrowing record
         cursor.execute('INSERT INTO borrowings (b_id, u_id) VALUES (%s, %s)', (b_id, u_id))
 
         connection.commit()
-        print("Book successfully checked out")  # S6
+        print("Book successfully checked out")  #S6
 
+# 9. 도서 반납과 평점 부여
 def return_and_rate_book():
-    book_id = input('book ID: ')
-    user_id = input('User ID: ')
+    b_id = input('book ID: ')
+    u_id = input('User ID: ')
     rating = input('Ratings (1~5): ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+
+    # Validate rating
+    try:
+        rating = int(rating)
+        if not (1 <= int(rating) <= 5):
+            raise Error
+        
+        with connection.cursor(dictionary=True) as cursor:
+            # Check if the book exists
+            if not book_exists(b_id):
+                print(f'Book {b_id} does not exist') #E5
+                return
+
+            # Check if the user exists
+            if not user_exists(u_id):
+                print(f"User {u_id} does not exist") #E7
+                return
+
+            # Check if the book is currently borrowed by the user
+            cursor.execute('SELECT * FROM borrowings WHERE b_id = %s AND u_id = %s AND returned = FALSE', (b_id, u_id))
+            borrowing = cursor.fetchone()
+            if not borrowing:
+                print("Cannot return and rate a book that is not currently borrowed for this user")  #E12
+                return
+
+            # Update the borrowing record to mark the book as returned
+            cursor.execute('UPDATE borrowings SET returned = TRUE WHERE b_id = %s AND u_id = %s', (b_id, u_id))
+
+            # Update available copies
+            cursor.execute('UPDATE books SET b_available_copies = b_available_copies + 1 WHERE b_id = %s', (b_id,))
+
+            # Check if the user has already rated the book
+            cursor.execute('SELECT * FROM ratings WHERE b_id = %s AND u_id = %s', (b_id, u_id))
+            existing_rating = cursor.fetchone()
+            if existing_rating:
+                # Update existing rating
+                cursor.execute('UPDATE ratings SET b_u_rating = %s WHERE b_id = %s AND u_id = %s', (rating, b_id, u_id))
+            else:
+                # Insert new rating
+                cursor.execute('INSERT INTO ratings (b_id, u_id, b_u_rating) VALUES (%s, %s, %s)', (b_id, u_id, rating))
+
+            # Calculate new average rating
+            cursor.execute('SELECT AVG(b_u_rating) as avg_rating FROM ratings WHERE b_id = %s', (b_id,))
+            new_avg_rating = cursor.fetchone()['avg_rating']
+
+            # Update the average rating in the books table
+            cursor.execute('UPDATE books SET b_avg_rating = %s WHERE b_id = %s', (new_avg_rating, b_id))
+
+            connection.commit()
+            print("Book successfully returned and rated")  #S7
+            return
+
+    except:
+        print("Rating should range from 1 to 5.")  #E11
+        return
+    
 
 def print_users_for_book():
     user_id = input('User ID: ')
@@ -314,7 +380,7 @@ def recommend_item_based():
 def format_results(type, results):
     # Set Headers and Spacing Format
     if type == 'books':
-        headers = ['b_id', 'b_title', 'b_author', 'avg_rating', 'available_copies']
+        headers = ['b_id', 'b_title', 'b_author', 'b_avg_rating', 'b_available_copies']
         formats = [8, 50, 30, 16, 16]
     elif type == 'users':
         headers = ['u_id', 'u_name']
