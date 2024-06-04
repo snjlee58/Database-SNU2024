@@ -430,10 +430,24 @@ def fetch_borrowed_books(u_id):
     #     print(f"Error fetching borrowed books: {e}")
     #     return None
 
+# 11. 도서 검색
 def search_books():
     query = input('Query: ')
     # YOUR CODE GOES HERE
     # print msg
+
+    with connection.cursor(dictionary=True) as cursor:
+        # Perform a case-insensitive search
+        cursor.execute('''
+            SELECT b_id, b_title, b_author, b_avg_rating, b_available_copies
+            FROM books
+            WHERE LOWER(b_title) LIKE LOWER(%s)
+            ORDER BY b_id ASC;
+            ''', (f'%{query}%',))
+        search_results = cursor.fetchall()
+
+        # Print search results
+        print(format_results('books', search_results)) #FIX: what if search results is empty?
 
 def recommend_popularity():
     # YOUR CODE GOES HERE
