@@ -179,27 +179,23 @@ def remove_book():
     
     with connection.cursor(dictionary=True) as cursor:
         # Check if the book is currently borrowed
-        # cursor.execute('SELECT * FROM borrowings WHERE b_id = %s AND return_date IS NULL', (b_id,))
-        # borrowing = cursor.fetchone()
-        # if borrowing:
-        #     print("Error: The book is currently borrowed and cannot be deleted.")  # E2
-        #     return
+        cursor.execute('SELECT * FROM borrowings WHERE b_id = %s AND returned IS FALSE', (b_id,))
+        borrowing = cursor.fetchone()
+        if borrowing:
+            print("Cannot delete a book that is currently borrowed")  #E6
+            return
 
         # Delete related ratings
         cursor.execute('DELETE FROM ratings WHERE b_id = %s', (b_id,))
 
         # Delete related borrowings
-        # cursor.execute('DELETE FROM borrowings WHERE b_id = %s', (b_id,))
+        cursor.execute('DELETE FROM borrowings WHERE b_id = %s', (b_id,))
 
         # Delete the book
         cursor.execute('DELETE FROM books WHERE b_id = %s', (b_id,))
 
         connection.commit()
         print("One book successfully removed")  # S5
-
-
-    # print msg
-    # pass
 
 def book_exists(b_id):
     with connection.cursor(dictionary=True) as cursor:
