@@ -449,12 +449,40 @@ def search_books():
         # Print search results
         print(format_results('books', search_results)) #FIX: what if search results is empty?
 
+# 12. 회원을 위한 도서 추천 1
 def recommend_popularity():
     # YOUR CODE GOES HERE
-    user_id = input('User ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
     # print msg
-    pass
+    # pass
+
+    # Check if the user exists
+    if not user_exists(u_id):
+        print(f"User {u_id} does not exist") #E7
+        return
+
+    with connection.cursor(dictionary=True) as cursor:
+        # Fetch books not rated by the user
+        cursor.execute('''
+            SELECT b.b_id, b.b_title, b.b_author, b.b_avg_rating, b.b_available_copies, COUNT(r.b_u_rating) as rating_count
+            FROM books b
+            LEFT JOIN ratings r ON b.b_id = r.b_id
+            WHERE b.b_id NOT IN (SELECT b_id FROM ratings WHERE u_id = %s)
+            GROUP BY b.b_id
+            ORDER BY b.b_avg_rating DESC, b.b_id ASC;
+        ''', (u_id,))
+        recommendations = cursor.fetchall()
+        # if not recommendations: #FIX
+        #     print("No recommendations available for this user.")
+        #     return
+
+        # Display the top recommendations
+        top_avg_rating_book = recommendations[0]
+        top_rating_count_book = sorted(recommendations, key=lambda x: (-x['rating_count'], x['b_id']))[0]
+
+        print(format_results('books_recommendation', [top_avg_rating_book, top_rating_count_book]))
+
 
 def recommend_item_based():
     user_id = input('User ID: ')
@@ -470,6 +498,9 @@ def format_results(type, results):
     elif type == 'users':
         headers = ['u_id', 'u_name']
         formats = [8, 30]
+    elif type == 'books_recommendation':
+        headers = ['b_id', 'b_title', 'b_author', 'b_avg_rating']
+        formats = [8, 50, 30, 16]
 
     # Calculate length of separator
     total_length = sum(formats) + len(formats) - 1  # Adding len(formats) - 1 for spaces between columns
