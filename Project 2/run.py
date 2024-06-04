@@ -278,8 +278,10 @@ def update_book_ratings(b_id):
         cursor.execute('SELECT AVG(b_u_rating) as avg_rating FROM ratings WHERE b_id = %s', (b_id,))
         new_avg_rating = cursor.fetchone()['avg_rating']
         if new_avg_rating is None:
-                new_avg_rating = 0  # Set to 0 if no ratings exist
-        # print(new_avg_rating) #DELETE
+            print(new_avg_rating)
+            cursor.execute('UPDATE books SET b_avg_rating = NULL WHERE b_id = %s', (b_id,)) # Set to NULL if no ratings exist
+            return
+
         # Update the average rating in the books table
         cursor.execute('UPDATE books SET b_avg_rating = %s WHERE b_id = %s', (new_avg_rating, b_id))
 
@@ -483,12 +485,11 @@ def recommend_popularity():
 
         print(format_results('books_recommendation', [top_avg_rating_book, top_rating_count_book]))
 
-
+# 13.
 def recommend_item_based():
-    user_id = input('User ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
     # print msg
-    pass
 
 def format_results(type, results):
     # Set Headers and Spacing Format
@@ -518,7 +519,10 @@ def format_results(type, results):
     for row in results:
         temp_result = ''
         for i in range(len(headers)):
-            temp_result += f'{row[headers[i]]:<{formats[i]}}'
+            value = row[headers[i]]
+            if headers[i] == 'b_avg_rating' and value is None:
+                value = 'None'
+            temp_result += f'{value:<{formats[i]}}'
         res += temp_result
         res += '\n'
 
