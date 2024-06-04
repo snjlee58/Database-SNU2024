@@ -383,18 +383,56 @@ def return_and_rate_book():
         print("Rating should range from 1 to 5.")  #E11
         return
     
-
 def print_users_for_book():
-    user_id = input('User ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
     # print msg
     pass
 
+# 10. 회원이 대출 중인 도서 정보 출력
 def print_borrowing_status_for_user():
-    user_id = input('User ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
+
+    # Check if the user exists
+    if not user_exists(u_id):
+        print(f"User {u_id} does not exist") #E7
+        return
+
+    # Fetch borrowed books
+    borrowed_books = fetch_borrowed_books(u_id)
+    if not borrowed_books:
+        print("No books currently borrowed by this user.") #FIX: check specs for this
+        return
+
+    # Print borrowed books information
+    #FIX: incorporate into print formmated function if i can
+    line = '-' * 100
+    print(line)
+    print(f'{"Book ID":<10} {"Title":<40} {"Author":<30} {"Average Rating":<15}')
+    print(line)
+    for book in borrowed_books:
+        print(f'{book["b_id"]:<10} {book["b_title"]:<40} {book["b_author"]:<30} {book["b_avg_rating"]:<15}')
+    print(line)
     # print msg
-    pass
+    # pass
+
+def fetch_borrowed_books(u_id):
+    # try:
+        with connection.cursor(dictionary=True) as cursor:
+            # Fetch borrowed books information
+            cursor.execute('''
+                SELECT b.b_id, b.b_title, b.b_author, b.b_avg_rating
+                FROM books b
+                JOIN borrowings br ON b.b_id = br.b_id
+                WHERE br.u_id = %s AND br.returned = FALSE
+                ORDER BY b.b_id ASC;
+            ''', (u_id,))
+            borrowed_books = cursor.fetchall()
+            return borrowed_books
+    # except Error as e:
+    #     print(f"Error fetching borrowed books: {e}")
+    #     return None
 
 def search_books():
     query = input('Query: ')
