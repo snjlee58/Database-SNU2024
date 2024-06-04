@@ -133,18 +133,10 @@ def execute(sql, params=None):
 def print_books():
     print_books_sql = 'SELECT * FROM books ORDER BY b_id;' 
     books = fetch(print_books_sql)
-    
-    for book in books:
-        b_id = book['b_id']
-        b_title = book['b_title']
-        b_author = book['b_author']
-        b_available_copies = book['b_available_copies']
-        b_avg_rating = book['b_avg_rating'] 
-    
+
     print(format_results('books', books))
 
 def print_users():
-    # YOUR CODE GOES HERE
     print_users_sql = 'SELECT u_id, u_name FROM users ORDER BY u_id;'
     users = fetch(print_users_sql)
 
@@ -235,17 +227,66 @@ def insert_user():
 
 # 7. 회원 삭제
 def remove_user():
-    user_id = input('User ID: ')
+    u_id = input('User ID: ')
     # YOUR CODE GOES HERE
-    # print msg
-    pass
+
+    with connection.cursor(dictionary=True) as cursor:
+
+        # Check if the user exists
+        if not user_exists(u_id):
+            print(f"User {u_id} does not exist") #E7
+            return
+
+        # Check if the user has books currently borrowed
+        borrowed_books = get_borrowed_books(u_id)
+        if borrowed_books:
+            print("Cannot delete a user with borrowed books")  #E8
+            return
+        
+        # Get the books rated by the user
+        cursor.execute('SELECT b_id FROM ratings WHERE u_id = %s', (u_id,))
+        rated_books = cursor.fetchall()
+        # print(rated_books)
+
+        # Delete related ratings
+        cursor.execute('DELETE FROM ratings WHERE u_id = %s', (u_id,))
+
+        # Update book ratings
+        for book in rated_books:
+            update_book_ratings(book['b_id'])
+
+        # Delete related borrowings
+        cursor.execute('DELETE FROM borrowings WHERE u_id = %s', (u_id,))
+
+        # Delete the user
+        cursor.execute('DELETE FROM users WHERE u_id = %s', (u_id,))
+
+        connection.commit()
+        print("One user successfully removed")  #S4
 
 def available_copies_exists(b_id):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute('SELECT b_available_copies FROM books WHERE b_id = %s', (b_id,))
         b_available_copies = cursor.fetchone()['b_available_copies']
         return b_available_copies > 0
-    
+
+def get_borrowed_books(u_id):
+    with connection.cursor(dictionary=True) as cursor:
+        cursor.execute('SELECT * FROM borrowings WHERE u_id = %s AND returned = FALSE', (u_id,))
+        borrowed_books = cursor.fetchall()
+        return borrowed_books
+
+def update_book_ratings(b_id):
+    with connection.cursor(dictionary=True) as cursor:
+        # Calculate new average rating
+        cursor.execute('SELECT AVG(b_u_rating) as avg_rating FROM ratings WHERE b_id = %s', (b_id,))
+        new_avg_rating = cursor.fetchone()['avg_rating']
+        if new_avg_rating is None:
+                new_avg_rating = 0  # Set to 0 if no ratings exist
+        # print(new_avg_rating) #DELETE
+        # Update the average rating in the books table
+        cursor.execute('UPDATE books SET b_avg_rating = %s WHERE b_id = %s', (new_avg_rating, b_id))
+
 # 8. 도서 대출
 def checkout_book():
     b_id = input('Book ID: ')
@@ -265,7 +306,7 @@ def checkout_book():
 
         # Check available copies
         if not available_copies_exists(b_id):
-            print("Cannot delete a book that is currently borrowed") #E6
+            print("Cannot check out a book that is currently borrowed") #E9
             return
 
         # Check user's borrowing count
@@ -331,12 +372,8 @@ def return_and_rate_book():
                 # Insert new rating
                 cursor.execute('INSERT INTO ratings (b_id, u_id, b_u_rating) VALUES (%s, %s, %s)', (b_id, u_id, rating))
 
-            # Calculate new average rating
-            cursor.execute('SELECT AVG(b_u_rating) as avg_rating FROM ratings WHERE b_id = %s', (b_id,))
-            new_avg_rating = cursor.fetchone()['avg_rating']
-
-            # Update the average rating in the books table
-            cursor.execute('UPDATE books SET b_avg_rating = %s WHERE b_id = %s', (new_avg_rating, b_id))
+            # Update book ratings
+            update_book_ratings(b_id)
 
             connection.commit()
             print("Book successfully returned and rated")  #S7
