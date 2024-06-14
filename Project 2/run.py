@@ -19,7 +19,7 @@ connection = connect(
 def initialize_database():
     try:
         # Read the CSV file
-        data = pd.read_csv('data.csv', sep=',', encoding='latin1') #FIX: data.csv file name
+        data = pd.read_csv('data.csv', sep=',', encoding='latin1') 
 
         with connection.cursor(dictionary=True) as cursor:
             # Drop all tables if they exist to clear the database
@@ -28,7 +28,7 @@ def initialize_database():
             cursor.execute('DROP TABLE IF EXISTS users;')
             cursor.execute('DROP TABLE IF EXISTS books;')
 
-            # Create tables
+            # Create tables (books, users, ratings, borrowings)
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS books (
                 b_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,19 +50,18 @@ def initialize_database():
                 b_id INT NOT NULL,
                 u_id INT NOT NULL,
                 b_u_rating INT NOT NULL,
-                FOREIGN KEY (b_id) REFERENCES books (b_id), 
-                FOREIGN KEY (u_id) REFERENCES users (u_id)
+                FOREIGN KEY (b_id) REFERENCES books (b_id) ON DELETE CASCADE, 
+                FOREIGN KEY (u_id) REFERENCES users (u_id) ON DELETE CASCADE
             );''')
 
-            # Create borrowings table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS borrowings (
                 borrow_id INT AUTO_INCREMENT PRIMARY KEY,
                 b_id INT NOT NULL,
                 u_id INT NOT NULL,
                 returned BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (b_id) REFERENCES books(b_id),
-                FOREIGN KEY (u_id) REFERENCES users(u_id)
+                FOREIGN KEY (b_id) REFERENCES books(b_id) ON DELETE CASCADE,
+                FOREIGN KEY (u_id) REFERENCES users(u_id) ON DELETE CASCADE
             );
             ''')
 
@@ -123,14 +122,14 @@ def reset():
         initialize_database()
         connection.commit()
 
-# SELECT query. Return results.
+# Helper function for executing SELECT queries. -> Returns fetched records.
 def fetch(sql):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute(sql)
         result = cursor.fetchall()
         return result
 
-# INSERT, DELETE query.
+# Helper function for executing INSERT, DELETE queries.
 def execute(sql, params=None):
     with connection.cursor(dictionary=True) as cursor:
         if params:
@@ -158,7 +157,6 @@ def insert_book():
     title = input('Book title: ')
     author = input('Book author: ')
     
-    # YOUR CODE GOES HERE
     if not (1 <= len(title) <= 50):
         print("Title length should range from 1 to 50 characters") #E1
         return
@@ -206,14 +204,16 @@ def remove_book():
         cursor.execute('DELETE FROM books WHERE b_id = %s', (b_id,))
 
         connection.commit()
-        print("One book successfully removed")  # S5
+        print("One book successfully removed") #S5
 
+# Helper function - checks whether book exists
 def book_exists(b_id):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute('SELECT * FROM books WHERE b_id = %s', (b_id,))
         book = cursor.fetchone()
         return book is not None
 
+# Helper function - checks whether user exists
 def user_exists(u_id):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute('SELECT * FROM users WHERE u_id = %s', (u_id,))
@@ -245,7 +245,7 @@ def remove_user():
             return
 
         # Check if the user has books currently borrowed
-        borrowed_books = get_borrowed_books(u_id)
+        borrowed_books = retrieve_user_borrowings(u_id)
         if borrowed_books:
             print("Cannot delete a user with borrowed books")  #E8
             return
@@ -268,20 +268,23 @@ def remove_user():
         cursor.execute('DELETE FROM users WHERE u_id = %s', (u_id,))
 
         connection.commit()
-        print("One user successfully removed")  #S4
+        print("One user successfully removed") #S4
 
+# Helper function - checks whether a book is available for checkout
 def available_copies_exists(b_id):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute('SELECT b_available_copies FROM books WHERE b_id = %s', (b_id,))
         b_available_copies = cursor.fetchone()['b_available_copies']
         return b_available_copies > 0
 
-def get_borrowed_books(u_id):
+# Helper function - retrieve current borrowings by a user
+def retrieve_user_borrowings(u_id):
     with connection.cursor(dictionary=True) as cursor:
         cursor.execute('SELECT * FROM borrowings WHERE u_id = %s AND returned = FALSE', (u_id,))
         borrowed_books = cursor.fetchall()
         return borrowed_books
 
+# Helper function - recalculate and updates average ratings for a book
 def update_book_avg_ratings(b_id):
     with connection.cursor(dictionary=True) as cursor:
         # Calculate new average rating
@@ -381,6 +384,7 @@ def return_and_rate_book():
         print("Rating should range from 1 to 5.")  #E11
         return
     
+# Helper function - replaces a user's preexisting rating for a book 
 def update_latest_rating_for_user(b_id, u_id, rating):
     with connection.cursor(dictionary=True) as cursor:
         # Check if the user has already rated the book
@@ -393,7 +397,6 @@ def update_latest_rating_for_user(b_id, u_id, rating):
         else:
             # Insert new rating
             cursor.execute('INSERT INTO ratings (b_id, u_id, b_u_rating) VALUES (%s, %s, %s)', (b_id, u_id, rating))
-
 
 # 10. 회원이 대출 중인 도서 정보 출력
 def print_borrowing_status_for_user():
@@ -410,6 +413,7 @@ def print_borrowing_status_for_user():
     # Print borrowed books information
     print(format_results('borrowings', borrowed_books))
 
+# Helper function - retrieves borrowed book information by user
 def fetch_borrowed_books(u_id):
     with connection.cursor(dictionary=True) as cursor:
         # Fetch borrowed books information
@@ -510,7 +514,7 @@ def recommend_item_based():
         recommended_book['predicted_rating'] = round(predicted_rating, 2)
         print(format_results('books_recommendation_cf', [recommended_book]))
 
-
+# Helper function - retrieve all user ids
 def get_all_users():
     try:
         with connection.cursor(dictionary=True) as cursor:
@@ -521,19 +525,17 @@ def get_all_users():
         print(f"Error fetching users data: {e}")
         return pd.DataFrame()
 
+# Helper function - retrieve all rating information
 def get_ratings_data():
-    try:
-        with connection.cursor(dictionary=True) as cursor:
-            cursor.execute('SELECT u_id, b_id, b_u_rating FROM ratings')
-            ratings = cursor.fetchall()
-            return pd.DataFrame(ratings)
-    except Error as e:
-        print(f"Error fetching ratings data: {e}")
-        return pd.DataFrame()
+    with connection.cursor(dictionary=True) as cursor:
+        cursor.execute('SELECT u_id, b_id, b_u_rating FROM ratings')
+        ratings = cursor.fetchall()
+        return pd.DataFrame(ratings)
 
+# Helper function - build user-item matrix 
 def build_user_item_matrix(users_df, ratings_df):
     # Drop empty entries in users_df
-    users_df = users_df.dropna(subset=['u_id']) #FIX
+    users_df = users_df.dropna(subset=['u_id']) 
 
     # Construct user-item matrix with actual ratings
     user_item_matrix = ratings_df.pivot(index='u_id', columns='b_id', values='b_u_rating')
@@ -551,6 +553,7 @@ def build_user_item_matrix(users_df, ratings_df):
 
     return user_item_matrix, original_ratings_mask
 
+# Helper function - calculate cosine similarity
 def calculate_cosine_similarity(user_item_matrix):
     similarity_matrix = np.dot(user_item_matrix, user_item_matrix.T)
     norms = np.array([np.sqrt(np.diagonal(similarity_matrix))])
@@ -565,6 +568,7 @@ def calculate_cosine_similarity(user_item_matrix):
 
     return similarity_matrix
 
+# Helper function - calculate weighted predicted scores
 def predict_ratings(user_item_matrix, original_ratings_mask, similarity_matrix, target_user_id):
     target_user_id = int(target_user_id)  # Explicit conversion to integer
 
@@ -582,6 +586,7 @@ def predict_ratings(user_item_matrix, original_ratings_mask, similarity_matrix, 
 
     return predicted_ratings
 
+# Helper function - formatting results for print
 def format_results(type, results): 
     # Set Headers and Spacing Format
     if type == 'books':
@@ -621,7 +626,7 @@ def format_results(type, results):
         temp_result = ''
         for i in range(len(db_fields)):
             value = row[db_fields[i]]
-            if db_fields[i] == 'b_avg_rating' and value is None: #FIX
+            if db_fields[i] == 'b_avg_rating' and value is None: 
                 value = 'None'
             temp_result += f'{value:<{formats[i]}}'
         res += temp_result
@@ -632,7 +637,7 @@ def format_results(type, results):
     return res
 
 
-def format_book_recommendations(title, book): #FIX: make cleaner
+def format_book_recommendations(title, book):
     # Set Headers and Spacing Format
     headers = ['id', 'title', 'author', 'avg.rating']
     db_fields = ['b_id', 'b_title', 'b_author', 'b_avg_rating']
@@ -651,9 +656,7 @@ def format_book_recommendations(title, book): #FIX: make cleaner
     print(line)
     
     if book:
-        # book_line = ''.join(f'{book.get(key, "None"):<{formats[i]}}' for i, key in enumerate(db_fields))
         book_line = ''.join(f'{str(book.get(key, "None") if book.get(key, "None") is not None else "None"):<{formats[i]}}' for i, key in enumerate(db_fields))
-
         print(book_line)
 
 def main():
