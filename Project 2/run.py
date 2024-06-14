@@ -105,7 +105,7 @@ def initialize_database():
         print('Database successfully initialized')
     
     except Error as e:
-        print(f"Error: {e}")
+        return
     
     finally:
         cursor.close()
@@ -120,6 +120,17 @@ def reset():
         sql = 'DROP TABLE books, users, ratings, borrowings;'
         cursor.execute(sql)
         initialize_database()
+        connection.commit()
+
+# Clear Database
+def clear_database():
+    confirmation = input("Are you sure you want to clear the database? This will delete all existing tables and data. (y/n): ")
+    if confirmation.lower() != 'y':
+        return
+    
+    with connection.cursor(dictionary=True) as cursor:
+        sql = 'DROP TABLE books, users, ratings, borrowings;'
+        cursor.execute(sql)
         connection.commit()
 
 # Helper function for executing SELECT queries. -> Returns fetched records.
@@ -522,7 +533,6 @@ def get_all_users():
             users = cursor.fetchall()
             return pd.DataFrame(users)
     except Error as e:
-        print(f"Error fetching users data: {e}")
         return pd.DataFrame()
 
 # Helper function - retrieve all rating information
